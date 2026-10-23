@@ -1,0 +1,9 @@
+{
+  "name": "vitals-monitor",
+  "version": "3.0.0",
+  "description": "A local Activity Monitor alternative for macOS that groups processes by app.",
+  "private": true,
+  "bin": { "vitals": "bin/vitals.js" },
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}

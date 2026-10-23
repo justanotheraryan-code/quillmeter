@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Secrets and local config
+.env
+.env.*
+
+# Logs
+*.log
+
+# Built menu bar app (rebuild with menubar/menubar.sh build)
+menubar/VitalsMenu.app/
+
+# Vitals keeps its data in ~/.pulse, but ignore a local copy if one is ever used
+.pulse/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.tmp
