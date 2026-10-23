@@ -235,6 +235,8 @@ body.settings-mode .setrow { flex-direction: row; align-items: center; gap: 24px
   transform: translate(var(--tx, 0px), var(--ty, 0px)) scale(calc(var(--sx, 1) * var(--p, 1)), calc(var(--sy, 1) * var(--p, 1)));
   transition: transform .2s cubic-bezier(.2, .8, .2, 1), background-color .15s ease, border-color .15s ease, opacity .2s ease; }
 .glass.press:active { --p: .96; transition-duration: .08s; }
+/* Item to item: the light on the control you leave fades while the next one comes up */
+.glass::before, .glass::after { transition: opacity .2s ease; }
 .btn.glass, .act.glass, .icon-btn.glass, .search.glass { box-shadow: inset 0 1px 0 rgb(255 255 255 / .5), 0 1px 2px rgb(0 0 0 / .08); }
 /* Rim light: a 1 px ring, lit by the cursor, that hugs the control's edge and never sits behind the label */
 .glass::before { content: ''; position: absolute; inset: 0; z-index: 1; border-radius: inherit; padding: 1px; pointer-events: none;
@@ -245,10 +247,10 @@ body.settings-mode .setrow { flex-direction: row; align-items: center; gap: 24px
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude; }
 /* Glow: soft light under the label that follows the cursor while it is near */
 .glass::after { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; opacity: var(--fade, 0);
-  background: radial-gradient(90px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--glow) 22%, transparent), transparent 70%); }
-.btn.primary.glass::after { background: radial-gradient(90px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--glow) 9%, transparent), transparent 70%); } /* 9% keeps a white label at 4.7:1 (14% dropped it to 4.3:1) */
+  background: radial-gradient(70px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--glow) 22%, transparent), transparent 70%); }
+.btn.primary.glass::after { background: radial-gradient(70px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--glow) 9%, transparent), transparent 70%); } /* 9% keeps a white label at 4.7:1 (14% dropped it to 4.3:1) */
 /* An input can't hold pseudo-elements, so the search field takes the glow on its own background */
-.search.glass { background: radial-gradient(90px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--glow) calc(22% * var(--fade, 0)), transparent), transparent 70%), var(--fill); }
+.search.glass { background: radial-gradient(70px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--glow) calc(22% * var(--fade, 0)), transparent), transparent 70%), var(--fill); }
 .search.glass::before, .search.glass::after { display: none; }
 
 /* Floating layer: true glass */
@@ -262,16 +264,15 @@ body.refract .glass.float.refract-ok { -webkit-backdrop-filter: blur(10px) satur
 .lens { position: absolute; left: 8px; top: 0; width: 0; height: 0; border-radius: 9px; z-index: 0; pointer-events: none; opacity: 0;
   background: color-mix(in srgb, var(--accent) 20%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / .45), 0 1px 3px rgb(0 0 0 / .1);
-  transform: translate(var(--tx, 0px), calc(var(--ly, 0px) + var(--ty, 0px))) scale(var(--sx, 1), var(--sy, 1));
+  transform: translateY(var(--ly, 0px));
   transition: transform .5s cubic-bezier(.3, 1.4, .5, 1), width .3s ease, height .3s ease, opacity .2s ease; }
-.glass.lens { transform: translate(var(--tx, 0px), calc(var(--ly, 0px) + var(--ty, 0px))) scale(var(--sx, 1), var(--sy, 1)); }
+.glass.lens { transform: translateY(var(--ly, 0px)); }
 .thumb { position: absolute; left: 0; top: 0; width: 0; height: 0; border-radius: 999px; z-index: 0; pointer-events: none; opacity: 0;
   background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--line);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / .5), 0 1px 3px rgb(0 0 0 / .12);
-  transform: translate(calc(var(--lx, 0px) + var(--tx, 0px)), var(--ty, 0px)) scale(var(--sx, 1), var(--sy, 1));
+  transform: translateX(var(--lx, 0px));
   transition: transform .45s cubic-bezier(.3, 1.35, .5, 1), width .3s ease, opacity .2s ease; }
-.glass.thumb { transform: translate(calc(var(--lx, 0px) + var(--tx, 0px)), var(--ty, 0px)) scale(var(--sx, 1), var(--sy, 1)); }
-.seg.glass::before, .panes.glass::before { opacity: calc(.3 + .5 * var(--fade, 0)); }
+.glass.thumb { transform: translateX(var(--lx, 0px)); }
 
 @media (prefers-color-scheme: dark) {
   .btn.glass, .act.glass, .icon-btn.glass, .search.glass, .lens, .thumb { box-shadow: inset 0 1px 0 rgb(255 255 255 / .16), 0 1px 2px rgb(0 0 0 / .4); }

@@ -6,7 +6,7 @@
 licensed under the MIT license. Quillmeter does not include or run the package (it is a React component and this
 app has no build step); it ports the technique to plain JavaScript and CSS:
 
-- the activation zone around a control where it leans toward the cursor, and the directional stretch
+- the lean toward the cursor and the directional stretch (Quillmeter applies them to the hovered control only; the library also eases controls near the pointer)
 - the rim light on a 1 px masked border that follows the pointer
 - the press squash, and the idea of a displacement map for refraction on browsers that support it
 

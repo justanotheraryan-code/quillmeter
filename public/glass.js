@@ -2,32 +2,31 @@
 // Liquid-glass behavior for Quillmeter's controls.
 //
 // The cursor-reactive parts follow the technique in liquid-glass-react (MIT, Copyright 2025 Max Rovensky,
-// https://github.com/rdev/liquid-glass-react): an activation zone around each control where it leans toward the
-// pointer (elastic translation) and stretches along it, a rim light that follows the cursor, and a press squash.
-// This is a vanilla port, because Quillmeter is plain HTML with no build step. See THIRD_PARTY_NOTICES.md.
+// https://github.com/rdev/liquid-glass-react): a control leans toward the pointer, stretches along it, shows a rim
+// light that follows the cursor, and squashes when pressed. This is a vanilla port, because Quillmeter is plain HTML
+// with no build step. See THIRD_PARTY_NOTICES.md.
 //
-// Apple's guidance is followed on top of that: glass only on the floating control layer (toolbar, sidebar
-// indicator, segmented controls, sheets); content-layer buttons get the same look without a backdrop blur;
-// Reduce Motion drops the movement, and Reduce Transparency and Increase Contrast get opaque fills.
+// It works item to item: only the control under the cursor reacts, and the light hands off to the next control as the
+// pointer moves, so nothing glows by proximity and nothing spills onto its neighbors.
+//
+// Apple's guidance is followed on top of that: real glass (a backdrop blur) only on the floating control layer
+// (toolbar controls, the sidebar and segmented indicators, sheets); Reduce Motion drops the movement; Reduce
+// Transparency and Increase Contrast get opaque fills (see app.css).
 (() => {
   const params = new URLSearchParams(location.search).get('glass') || ''; // test hooks: basic, reduce
-  const mq = (q) => matchMedia(q);
-  const reduceMotion = mq('(prefers-reduced-motion: reduce)');
-  const coarse = mq('(pointer: coarse)');
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const coarse = matchMedia('(pointer: coarse)');
   const cssOK = (p, v) => window.CSS && CSS.supports(p, v);
   // Displacement (real refraction) is only used on Chromium, where it renders. WebKit parses the filter but the
   // library documents that it doesn't show the bending, so the app's web view uses blur, saturation and light.
   const refract = /Chrome\//.test(navigator.userAgent) && cssOK('backdrop-filter', 'url(#qm-refract)') && params !== 'basic' && params !== 'reduce';
 
-  const ZONE = 120;            // px from a control's edge where it starts to respond (the library uses 200)
-  const MAX_SHIFT = 3;         // px, so a small control never wanders far from its hit area
+  const MAX_SHIFT = 3;                                                // px, so a small control never wanders from its hit area
+  const REACTIVE = '.btn, .act, .icon-btn, .search, .side-item';      // the controls that react to the cursor
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   // Run on the next frame, or after 40 ms if no frame comes (animation frames pause when a window is in the background).
   const defer = (fn) => { let done = false; const run = () => { if (!done) { done = true; fn(); } }; requestAnimationFrame(run); setTimeout(run, 40); };
-  const SELECTOR = '.btn, .act, .icon-btn, .search, .side-item, .seg, .panes, .sheet, .lens, .thumb';
-  let els = [], mouse = null, raf = 0;
-
-  function motionOn() { return !reduceMotion.matches && !coarse.matches && params !== 'reduce'; }
+  const motionOn = () => !reduceMotion.matches && !coarse.matches && params !== 'reduce';
 
   // ---------- Which elements are glass ----------
   function classify(el) {
@@ -36,11 +35,10 @@
     const floating = el.matches('.lens, .thumb') || (el.closest('.toolbar, #sheet-root') !== null && !el.matches('.side-item'));
     el.classList.toggle('float', floating);
     el.classList.toggle('lite', !floating);
-    const press = el.matches('.btn, .act, .icon-btn, .side-item');
-    el.classList.toggle('press', press);
-    // Elasticity: small controls lean toward the cursor; menu rows, bars and sheets only get the light.
-    const e = el.matches('.btn, .act, .icon-btn') ? 0.15 : el.matches('.lens, .thumb') ? 0.06 : 0;
-    el.dataset.elastic = String(e);
+    el.classList.toggle('press', el.matches('.btn, .act, .icon-btn, .side-item'));
+    el.classList.toggle('react', el.matches(REACTIVE));
+    // Buttons lean toward the cursor; menu rows and fields only get the light.
+    el.dataset.elastic = el.matches('.btn, .act, .icon-btn') ? '0.15' : '0';
     if (refract && el.matches('.btn, .icon-btn, .lens, .thumb')) el.classList.add('refract-ok');
   }
 
@@ -83,58 +81,67 @@
     }
   }
 
-  // ---------- Pointer tracking (one rAF per frame, reads before writes) ----------
-  function frame() {
-    if (!mouse) return;
-    const live = els.filter((el) => el.isConnected);
-    const rects = live.map((el) => el.getBoundingClientRect());
-    const move = motionOn();
-    live.forEach((el, i) => {
-      const r = rects[i];
-      if (!r.width || !r.height) return;
-      const dx = mouse.x - (r.left + r.width / 2), dy = mouse.y - (r.top + r.height / 2);
-      const edge = Math.hypot(Math.max(0, Math.abs(dx) - r.width / 2), Math.max(0, Math.abs(dy) - r.height / 2));
-      const fade = edge > ZONE ? 0 : 1 - edge / ZONE;
-      // Only controls near the cursor (or that just lost it) need their styles touched; this keeps 100+ buttons cheap.
-      const was = el._fade || 0;
-      el._fade = fade;
-      if (fade === 0 && was === 0) return;
-      el.style.setProperty('--mx', `${(mouse.x - r.left).toFixed(1)}px`);
-      el.style.setProperty('--my', `${(mouse.y - r.top).toFixed(1)}px`);
-      el.style.setProperty('--fade', fade.toFixed(3));
-      const k = Number(el.dataset.elastic || 0);
-      if (!move || !k || fade === 0) { el.style.setProperty('--tx', '0px'); el.style.setProperty('--ty', '0px'); el.style.setProperty('--sx', '1'); el.style.setProperty('--sy', '1'); return; }
-      const dist = Math.hypot(dx, dy) || 1, nx = dx / dist, ny = dy / dist;
-      const stretch = Math.min(dist / 300, 1) * k * fade;
-      el.style.setProperty('--tx', `${clamp(dx * k * 0.1 * fade, -MAX_SHIFT, MAX_SHIFT).toFixed(2)}px`);
-      el.style.setProperty('--ty', `${clamp(dy * k * 0.1 * fade, -MAX_SHIFT, MAX_SHIFT).toFixed(2)}px`);
-      el.style.setProperty('--sx', clamp(1 + Math.abs(nx) * stretch * 0.3 - Math.abs(ny) * stretch * 0.15, 0.92, 1.08).toFixed(3));
-      el.style.setProperty('--sy', clamp(1 + Math.abs(ny) * stretch * 0.3 - Math.abs(nx) * stretch * 0.15, 0.92, 1.08).toFixed(3));
-    });
+  // ---------- Pointer: one control at a time ----------
+  let active = null, pointer = null, queued = false;
+
+  function release(el) {
+    el.style.setProperty('--fade', '0');
+    for (const [k, v] of [['--tx', '0px'], ['--ty', '0px'], ['--sx', '1'], ['--sy', '1']]) el.style.setProperty(k, v);
   }
-  const schedule = () => { if (!raf) { raf = 1; defer(() => { raf = 0; frame(); }); } };
-  addEventListener('pointermove', (e) => { if (e.pointerType === 'touch') return; mouse = { x: e.clientX, y: e.clientY }; schedule(); }, { passive: true });
-  document.addEventListener('pointerleave', () => { mouse = { x: -9999, y: -9999 }; schedule(); });
-  addEventListener('blur', () => { mouse = { x: -9999, y: -9999 }; schedule(); });
+  function engage(el, x, y) {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    el.style.setProperty('--mx', `${(x - r.left).toFixed(1)}px`);
+    el.style.setProperty('--my', `${(y - r.top).toFixed(1)}px`);
+    el.style.setProperty('--fade', '1');
+    const k = Number(el.dataset.elastic || 0);
+    if (!k || !motionOn()) return;
+    // The pointer's offset from the centre, as the library does it: lean toward it, stretch along it.
+    const dx = x - (r.left + r.width / 2), dy = y - (r.top + r.height / 2), dist = Math.hypot(dx, dy) || 1;
+    const nx = dx / dist, ny = dy / dist, stretch = Math.min(dist / 60, 1) * k;
+    el.style.setProperty('--tx', `${clamp(dx * k * 0.2, -MAX_SHIFT, MAX_SHIFT).toFixed(2)}px`);
+    el.style.setProperty('--ty', `${clamp(dy * k * 0.2, -MAX_SHIFT, MAX_SHIFT).toFixed(2)}px`);
+    el.style.setProperty('--sx', clamp(1 + Math.abs(nx) * stretch * 0.3 - Math.abs(ny) * stretch * 0.15, 0.94, 1.06).toFixed(3));
+    el.style.setProperty('--sy', clamp(1 + Math.abs(ny) * stretch * 0.3 - Math.abs(nx) * stretch * 0.15, 0.94, 1.06).toFixed(3));
+  }
+  function apply() {
+    queued = false;
+    const target = pointer && pointer.el && pointer.el.isConnected && !pointer.el.disabled ? pointer.el : null;
+    if (active && active !== target) release(active);   // hand the light off: the old control fades, the new one lights
+    active = target;
+    if (active) engage(active, pointer.x, pointer.y);
+  }
+  const schedule = () => { if (!queued) { queued = true; defer(apply); } };
+
+  const controlAt = (target) => (target instanceof Element ? target.closest(REACTIVE) : null);
+  addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch') return;
+    const el = controlAt(e.target);
+    pointer = { el: el && el.classList.contains('glass') ? el : null, x: e.clientX, y: e.clientY };
+    schedule();
+  }, { passive: true });
+  const clear = () => { pointer = null; schedule(); };
+  document.addEventListener('pointerleave', clear);
+  addEventListener('blur', clear);
 
   // ---------- Keep up with the page ----------
   function refresh() {
-    document.querySelectorAll(SELECTOR).forEach(classify);
-    els = [...document.querySelectorAll('.glass')];
+    document.querySelectorAll('.btn, .act, .icon-btn, .search, .side-item, .seg, .panes, .sheet, .lens, .thumb').forEach(classify);
     placeLens();
     placeThumbs();
-    els = [...document.querySelectorAll('.glass')];
-    schedule();
+    // The page re-renders often; if the cursor is resting on a control that was just rebuilt, light it again.
+    if (pointer && !(pointer.el && pointer.el.isConnected)) {
+      const el = controlAt(document.elementFromPoint(pointer.x, pointer.y));
+      pointer.el = el && el.classList.contains('glass') ? el : null;
+      schedule();
+    }
   }
-  let pending = 0;
-  const later = () => { if (!pending) { pending = 1; defer(() => { pending = 0; refresh(); }); } };
+  let pending = false;
+  const later = () => { if (!pending) { pending = true; defer(() => { pending = false; refresh(); }); } };
 
   function start() {
     document.body.classList.add('glass-ready');
-    if (refract) {
-      document.body.classList.add('refract');
-      document.body.prepend(refractionFilter());
-    }
+    if (refract) { document.body.classList.add('refract'); document.body.prepend(refractionFilter()); }
     if (params === 'reduce') document.body.classList.add('reduce-motion', 'reduce-transparency');
     new MutationObserver(later).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     if (window.ResizeObserver) new ResizeObserver(later).observe(document.body);
