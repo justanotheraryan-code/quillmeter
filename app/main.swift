@@ -492,13 +492,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
                 let js = "JSON.stringify({title: document.title, sidebarItems: document.querySelectorAll('.side-item').length, groups: document.querySelectorAll('.side-group:not(:empty)').length, setupSheet: !!document.querySelector('.sheet'), sheetFolders: document.querySelectorAll('.sheet [data-folder]').length, sheetChecked: document.querySelectorAll('.sheet [data-folder]:checked').length, native: !!window.quillmeterNative, host: document.getElementById('hostline').textContent})"
                 let js2 = "JSON.stringify({mode: document.body.classList.contains('settings-mode'), title: document.getElementById('title').textContent, panes: document.querySelectorAll('[data-pane]').length, folderBoxes: document.querySelectorAll('[data-folder]').length})"
+                // Glass: it loaded, refraction stays off in WebKit, and a pointer move over a control drives it.
+                let glass1 = "(() => { const b = document.querySelector('.toolbar .icon-btn'); const r = b.getBoundingClientRect(); window.dispatchEvent(new PointerEvent('pointermove', {clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, pointerType: 'mouse', bubbles: true})); return b.className; })()"
+                let glass2 = "(() => { const b = document.querySelector('.toolbar .icon-btn'); return JSON.stringify({ready: document.body.classList.contains('glass-ready'), refract: document.body.classList.contains('refract'), glassElements: document.querySelectorAll('.glass').length, lens: !!document.querySelector('.lens'), lensPlaced: document.querySelector('.lens').style.height !== '', fade: b.style.getPropertyValue('--fade'), mx: b.style.getPropertyValue('--mx'), backdrop: getComputedStyle(document.querySelector('.sheet') || b).webkitBackdropFilter || getComputedStyle(b).backdropFilter}); })()"
                 v.evaluateJavaScript(js) { r1, e1 in
                     sv.evaluateJavaScript(js2) { r2, e2 in
-                        print("selftest: version=\(appVersion) serverStartedByApp=\(self.server.weStarted) loginStatus=\(Login.label)")
-                        print("selftest: main=\(r1 as? String ?? "nil") error=\(e1?.localizedDescription ?? "none")")
-                        print("selftest: settings=\(r2 as? String ?? "nil") error=\(e2?.localizedDescription ?? "none")")
-                        self.server.stop()
-                        exit(e1 == nil && e2 == nil && r1 != nil && r2 != nil ? 0 : 1)
+                        v.evaluateJavaScript(glass1) { _, _ in
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { // an off-screen web view throttles timers to about 1 s
+                                v.evaluateJavaScript(glass2) { r3, e3 in
+                                    print("selftest: version=\(appVersion) serverStartedByApp=\(self.server.weStarted) loginStatus=\(Login.label)")
+                                    print("selftest: main=\(r1 as? String ?? "nil") error=\(e1?.localizedDescription ?? "none")")
+                                    print("selftest: settings=\(r2 as? String ?? "nil") error=\(e2?.localizedDescription ?? "none")")
+                                    print("selftest: glass=\(r3 as? String ?? "nil") error=\(e3?.localizedDescription ?? "none")")
+                                    self.server.stop()
+                                    exit(e1 == nil && e2 == nil && e3 == nil && r1 != nil && r2 != nil && r3 != nil ? 0 : 1)
+                                }
+                            }
+                        }
                     }
                 }
             }

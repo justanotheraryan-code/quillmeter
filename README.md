@@ -22,6 +22,7 @@ Open the DMG and drag **Quillmeter** to **Applications**, or copy `dist/Quillmet
 
 - **Window and menu bar:** the dashboard opens in a native window with a sidebar (two levels, hideable with Control-Command-S). The menu bar item shows CPU and memory (red under strain), and its menu lists every figure and the busiest apps. Closing the window keeps Quillmeter running in the menu bar.
 - **Settings:** Quillmeter menu, Settings… (Command-comma) opens a Settings window with General, Folders, Display and Sidebar panes.
+- **Liquid glass:** controls respond to the cursor. Buttons lean toward it and stretch slightly when it is close, a rim of light follows it around their edge, and they squash a little when pressed. The sidebar's selected-section indicator and the segmented controls are glass that slides to the new choice. Real glass (a backdrop blur) is only used on the floating layer: toolbar controls, those indicators and sheets. Buttons inside content, such as the Quit buttons in a table, get the same look without a blur. The toolbar floats over the content, which fades and blurs where it meets the bar. Reduce Motion removes the movement, Reduce Transparency and Increase Contrast switch to opaque fills, and touch pointers get larger targets.
 - **First launch:** a short setup sheet asks which folders the disk breakdown may measure, whether to show Mac notifications, and whether to open at login. "Not Now" skips it and measures nothing.
 - **Launch at login:** a toggle in the app menu, the menu bar menu, and Settings. From a terminal: `/Applications/Quillmeter.app/Contents/MacOS/Quillmeter --login on|off|status`. It works once the app is in `/Applications`.
 - **Its own server:** the app starts the bundled server on port 4747 and stops it when you quit. If a Quillmeter server is already running there, the app attaches to it instead. If the app crashes, the server exits by itself within seconds.
@@ -115,11 +116,18 @@ The last form signs with the hardened runtime and the entitlements Node needs (`
 | `lib/extra.js` | GPU, battery detail, Docker and token-usage samplers |
 | `lib/scanplan.js` | Which folders the disk breakdown may read, and what it must never read |
 | `public/` | The dashboard (plain HTML, CSS and JavaScript, no build step) |
+| `public/glass.js` | The cursor-reactive glass behavior (adapted from liquid-glass-react, see below) |
 | `app/` | The macOS app: Swift host (`main.swift`), icon generator, build script, entitlements |
 | `bin/` | `quillmeter` command line tool and the MCP server |
 | `service/` | Headless launchd login-service installer |
 
 Data lives in `~/.quillmeter` (history, hourly rollups, alerts, settings and logs).
+
+## Credits
+
+The cursor-reactive glass behavior adapts ideas from [liquid-glass-react](https://github.com/rdev/liquid-glass-react) (MIT). The package itself isn't used, because it needs React and a bundler; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+On Chromium browsers (for example, if you choose Open in Browser) the glass also bends what is behind it using an SVG displacement filter. The app's own web view is WebKit, where that bending isn't shown, so it uses blur, saturation, the cursor-following light and the elastic motion.
 
 ## Not built
 

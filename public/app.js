@@ -421,8 +421,11 @@ function renderTabs() {
   if (tab !== 'Settings' && !visible.includes(tab)) tab = visible[0] || 'Overview';
   const badge = snap && snap.alerts && snap.alerts.length ? `<span class="badge" aria-label="${snap.alerts.length} active alerts">${snap.alerts.length}</span>` : '';
   const item = (t) => `<button class="side-item ${t === tab ? 'on' : ''}" data-t="${t}" ${t === tab ? 'aria-current="page"' : ''} style="--ic:${TAB_COLOR[t] || 'var(--accent)'}">${icon(t)}<span>${t}</span>${t === 'Alerts' ? badge : ''}</button>`;
-  $('#tabs').innerHTML = groups.map((g) => `${g.name ? `<div class="side-group">${g.name}</div>` : ''}${g.tabs.map(item).join('')}`).join('')
+  const listHtml = groups.map((g) => `${g.name ? `<div class="side-group">${g.name}</div>` : ''}${g.tabs.map(item).join('')}`).join('')
     + `<div class="side-group"></div><button class="side-item ${tab === 'Settings' ? 'on' : ''}" data-open-settings ${tab === 'Settings' ? 'aria-current="page"' : ''}>${icon('Settings')}<span>Settings…</span></button>`;
+  // Rebuilding the list on every poll would reset the sliding glass indicator, so only touch the DOM when it changed.
+  const list = $('#tabs-list');
+  if (list.dataset.html !== listHtml) { list.innerHTML = listHtml; list.dataset.html = listHtml; }
 }
 
 // ---------- Toolbar ----------
