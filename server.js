@@ -463,6 +463,13 @@ function record(s) {
 }
 process.on('SIGINT', () => { flushMinute(true); flushHour(); process.exit(0); });
 process.on('SIGTERM', () => { flushMinute(true); flushHour(); process.exit(0); });
+// When launched by Quillmeter.app, exit if the app is gone (crash or force quit) so no orphan keeps the port.
+if (process.env.QUILLMETER_PARENT_PID) {
+  const parent = Number(process.env.QUILLMETER_PARENT_PID);
+  setInterval(() => {
+    try { process.kill(parent, 0); } catch { flushMinute(true); flushHour(); process.exit(0); }
+  }, 5000).unref();
+}
 
 function historyRange(range) {
   const days = { '30d': 30, '90d': 90, '180d': 180, '365d': 365 }[range];
@@ -663,7 +670,7 @@ const server = http.createServer(async (req, res) => {
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(data);
   });
 });

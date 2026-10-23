@@ -1,6 +1,14 @@
 const TABS = ['Overview', 'Apps', 'CPU', 'Memory', 'Disk', 'Network', 'GPU', 'Battery', 'History', 'Alerts', 'Projects', 'Docker', 'Agents', 'Settings'];
 let settings = { bits: false, cpuPerMac: false, palette: 'quillmeter', compact: false, retentionDays: 7, nativeNotify: true, tabs: { order: [], hidden: [] }, overview: { order: [], hidden: [] } };
 let notice = '', renderedTab = null;
+// Set by Quillmeter.app (see app/main.swift); null when the page is opened in an ordinary browser.
+let native = window.quillmeterNative || null;
+window.onNativeState = (s) => { native = s; render(true); };
+function nativeRow() {
+  if (!native) return '';
+  const hint = native.status === 'needs approval' ? 'Approve Quillmeter in System Settings, General, Login Items.' : native.status === 'unavailable' ? 'Move Quillmeter.app to the Applications folder to enable this.' : 'Start Quillmeter automatically when you log in.';
+  return `<div class="setrow"><div><div>Launch at login</div><div class="hint" style="margin:0">${hint}</div></div><div><select data-native="launchAtLogin"><option value="true" ${native.launchAtLogin ? 'selected' : ''}>On</option><option value="false" ${native.launchAtLogin ? '' : 'selected'}>Off</option></select></div></div>`;
+}
 const OVERVIEW_CARDS = [['cpu', 'CPU'], ['memory', 'Memory'], ['disk', 'Disk'], ['network', 'Network'], ['gpu', 'GPU'], ['battery', 'Battery'], ['apps', 'Top apps']];
 // Saved order first (ignoring ids that no longer exist), then anything new in default order; hidden ids removed.
 const arranged = (ids, cfg) => {
@@ -235,6 +243,7 @@ const views = {
       ${row('Layout', 'A compact layout fits a small screen.', sel('compact', [[false, 'Comfortable'], [true, 'Compact']]))}
       ${row('History kept', 'Per-minute detail is kept for 7 days. Longer periods are kept as hourly averages.', sel('retentionDays', [[7, '7 days'], [30, '30 days'], [90, '90 days'], [180, '6 months'], [365, '1 year']]))}
       ${row('Mac notifications', 'Show alerts as native macOS notifications, even with this page closed.', sel('nativeNotify', [[true, 'On'], [false, 'Off']]) + ' <button class="act" data-testnotify>Send test</button>')}
+      ${nativeRow()}
     </div>
     <h3 style="margin:24px 0 8px">Arrange</h3>
     <div class="grid">${arrangeList('tabs', 'Tabs', TABS.map((t) => [t, t]), settings.tabs, 'Settings')}${arrangeList('overview', 'Overview cards', OVERVIEW_CARDS, settings.overview)}</div>
@@ -364,6 +373,8 @@ async function quit(query, label, count, force) {
 }
 
 document.addEventListener('change', async (e) => {
+  const nat = e.target.closest('[data-native]');
+  if (nat && window.webkit) { window.webkit.messageHandlers.native.postMessage({ launchAtLogin: nat.value === 'true' }); return; }
   const el = e.target.closest('[data-set]');
   if (!el) return;
   const raw = el.value;

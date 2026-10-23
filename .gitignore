@@ -12,8 +12,8 @@ npm-debug.log*
 # Logs
 *.log
 
-# Built menu bar app (rebuild with menubar/menubar.sh build)
-menubar/QuillmeterMenu.app/
+# Build output (app bundle and disk image): rebuild with app/build-app.sh
+dist/
 
 # Quillmeter keeps its data in ~/.quillmeter, but ignore a local copy if one is ever used
 .quillmeter/

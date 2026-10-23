@@ -94,7 +94,7 @@ const fail = (id, code, message) => send({ id, error: { code, message } });
 async function handle(msg) {
   const { id, method, params = {} } = msg;
   if (method === 'initialize') {
-    return send({ id, result: { protocolVersion: params.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'quillmeter', version: '3.0.0' } } });
+    return send({ id, result: { protocolVersion: params.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'quillmeter', version: '4.0.0' } } });
   }
   if (method === 'notifications/initialized' || method === 'notifications/cancelled') return; // notifications get no reply
   if (method === 'ping') return send({ id, result: {} });
@@ -109,7 +109,7 @@ async function handle(msg) {
       return send({ id, result: { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] } });
     } catch (e) {
       // Tool failures are reported to the model as results, not protocol errors.
-      return send({ id, result: { isError: true, content: [{ type: 'text', text: `Quillmeter isn't reachable at ${BASE.origin} (${e.message}). Start it with service/service.sh install.` }] } });
+      return send({ id, result: { isError: true, content: [{ type: 'text', text: `Quillmeter isn't reachable at ${BASE.origin} (${e.message}). Open Quillmeter.app, or run node server.js.` }] } });
     }
   }
   if (id !== undefined) fail(id, -32601, `Method not found: ${method}`);

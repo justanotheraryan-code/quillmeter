@@ -1,4 +1,6 @@
 #!/bin/sh
+# Headless install: run the server (no window) as a launchd login item that restarts if it dies.
+# Most people want Quillmeter.app instead (app/build-app.sh); the app starts its own server and attaches to this one if it is already running.
 # Install Quillmeter as a login item (launchd user agent) that restarts if it dies.
 #   service/service.sh install     copy the app to ~/.quillmeter/quillmeter and start it at every login
 #   service/service.sh uninstall   stop it and remove the agent (your data in ~/.quillmeter stays)

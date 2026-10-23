@@ -43,7 +43,7 @@ function table(headers, rows, right = []) {
   try {
     data = await get(cmd === 'ports' ? '/api/projects' : cmd === 'agents' ? '/api/agents' : '/api/snapshot');
   } catch (e) {
-    console.error(`Quillmeter isn't reachable at ${BASE.origin} (${e.message}).\nStart it with: node server.js   or install the login service: service/service.sh install`);
+    console.error(`Quillmeter isn't reachable at ${BASE.origin} (${e.message}).\nOpen Quillmeter.app, or run: node server.js`);
     process.exit(1);
   }
   if (flag('json')) {
