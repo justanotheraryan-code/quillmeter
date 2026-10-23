@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Vitals: a local Mac activity monitor that groups processes by app.
+// Quillmeter: a local Mac activity monitor that groups processes by app.
 // Zero dependencies. Reads real data via ps, vm_stat, df, netstat, pmset, lsof.
 const http = require('node:http');
 const fs = require('node:fs');
@@ -349,8 +349,8 @@ async function sampleAgents() {
 // Sample in the background so idle time is tracked even while nobody has the tab open.
 setInterval(() => sampleProjects().catch(() => {}), 10000);
 
-// ---------- Persistent history (per-minute rollups, 7 days, JSONL in ~/.pulse) ----------
-const DATA_DIR = process.env.PULSE_DATA || path.join(os.homedir(), '.pulse');
+// ---------- Persistent history (per-minute rollups, 7 days, JSONL in ~/.quillmeter) ----------
+const DATA_DIR = process.env.QUILLMETER_DATA || path.join(os.homedir(), '.quillmeter');
 const HIST_FILE = path.join(DATA_DIR, 'history.jsonl');
 const ALERT_FILE = path.join(DATA_DIR, 'alerts.jsonl');
 const MINUTE_RETENTION_MS = 7 * 864e5; // per-minute detail; older data lives on as hourly rollups
@@ -360,7 +360,7 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ---------- Settings (shared by the UI, alerts and retention) ----------
 const DEFAULT_SETTINGS = {
-  bits: false, cpuPerMac: false, palette: 'vitals', compact: false,
+  bits: false, cpuPerMac: false, palette: 'quillmeter', compact: false,
   retentionDays: 7, nativeNotify: true,
   tabs: { order: [], hidden: [] }, overview: { order: [], hidden: [] },
 };
@@ -368,7 +368,7 @@ function sanitizeSettings(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const s = { ...DEFAULT_SETTINGS, tabs: { order: [], hidden: [] }, overview: { order: [], hidden: [] } };
   for (const k of ['bits', 'cpuPerMac', 'compact', 'nativeNotify']) if (typeof r[k] === 'boolean') s[k] = r[k];
-  if (['vitals', 'mono', 'accessible'].includes(r.palette)) s.palette = r.palette;
+  if (['quillmeter', 'mono', 'accessible'].includes(r.palette)) s.palette = r.palette;
   if ([7, 30, 90, 180, 365].includes(r.retentionDays)) s.retentionDays = r.retentionDays;
   const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.length < 32).slice(0, 40) : []);
   for (const k of ['tabs', 'overview']) if (r[k] && typeof r[k] === 'object') s[k] = { order: list(r[k].order), hidden: list(r[k].hidden) };
@@ -493,10 +493,10 @@ function historyRange(range) {
 }
 
 // ---------- Alerts ----------
-const ALERT_CPU = Number(process.env.PULSE_ALERT_CPU || 80);                 // % of one core
-const ALERT_CPU_SECS = Number(process.env.PULSE_ALERT_CPU_SECS || 300);
-const GROWTH_BYTES = Number(process.env.PULSE_ALERT_GROWTH_MB || 1000) * 1e6;
-const GROWTH_MIN_SPAN = Number(process.env.PULSE_ALERT_GROWTH_MIN || 10) * 60e3;
+const ALERT_CPU = Number(process.env.QUILLMETER_ALERT_CPU || 80);                 // % of one core
+const ALERT_CPU_SECS = Number(process.env.QUILLMETER_ALERT_CPU_SECS || 300);
+const GROWTH_BYTES = Number(process.env.QUILLMETER_ALERT_GROWTH_MB || 1000) * 1e6;
+const GROWTH_MIN_SPAN = Number(process.env.QUILLMETER_ALERT_GROWTH_MIN || 10) * 60e3;
 const GROWTH_WINDOW = 30 * 60e3;
 const cpuSince = new Map();
 const memTrack = new Map();
@@ -599,7 +599,7 @@ function quitTargets(url) {
   if (!group) return { error: 'not found in the current process list', code: 404 };
   if (PROTECTED.has(group.name)) return { error: `${group.name} is protected`, code: 400 };
   const pids = (name ? group.pids : [pid]).filter((p) => p > 1 && p !== process.pid);
-  if (!pids.length) return { error: 'refusing to stop Vitals itself', code: 400 };
+  if (!pids.length) return { error: 'refusing to stop Quillmeter itself', code: 400 };
   return { group, pids };
 }
 
@@ -618,7 +618,7 @@ const server = http.createServer(async (req, res) => {
   if (!ALLOWED_HOSTS.has(req.headers.host)) { res.writeHead(403); return res.end('forbidden host'); }
   if (req.method === 'POST') {
     const origin = req.headers.origin;
-    if (req.headers['x-vitals'] !== '1' || (origin && !ALLOWED_HOSTS.has(origin.replace(/^https?:\/\//, '')))) {
+    if (req.headers['x-quillmeter'] !== '1' || (origin && !ALLOWED_HOSTS.has(origin.replace(/^https?:\/\//, '')))) {
       res.writeHead(403); return res.end('forbidden');
     }
   }
@@ -631,7 +631,7 @@ const server = http.createServer(async (req, res) => {
     }
     return json(res, 200, settings);
   }
-  if (url.pathname === '/api/notify-test' && req.method === 'POST') { notifyNative('Vitals', 'Notifications are working.'); return json(res, 200, { ok: true }); }
+  if (url.pathname === '/api/notify-test' && req.method === 'POST') { notifyNative('Quillmeter', 'Notifications are working.'); return json(res, 200, { ok: true }); }
   if (url.pathname === '/api/quit' && req.method === 'POST') {
     const t = quitTargets(url);
     if (t.error) return json(res, t.code, { ok: false, error: t.error });
@@ -655,7 +655,7 @@ const server = http.createServer(async (req, res) => {
     const owners = await sampleProjects();
     const target = owners.find((p) => p.pid === pid);
     if (!target || !target.dev) return json(res, 400, { ok: false, error: 'pid is not a listening dev server' });
-    if (target.self) return json(res, 400, { ok: false, error: 'refusing to stop Pulse itself' });
+    if (target.self) return json(res, 400, { ok: false, error: 'refusing to stop Quillmeter itself' });
     try { process.kill(pid, 'SIGTERM'); portsCache.t = 0; return json(res, 200, { ok: true }); }
     catch (e) { return json(res, 500, { ok: false, error: e.message }); }
   }
@@ -669,4 +669,4 @@ const server = http.createServer(async (req, res) => {
 });
 
 // Bound to loopback only: this exposes process names and can signal processes.
-server.listen(PORT, '127.0.0.1', () => console.log(`Vitals running at http://127.0.0.1:${PORT}`));
+server.listen(PORT, '127.0.0.1', () => console.log(`Quillmeter running at http://127.0.0.1:${PORT}`));

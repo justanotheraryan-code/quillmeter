@@ -13,10 +13,10 @@ npm-debug.log*
 *.log
 
 # Built menu bar app (rebuild with menubar/menubar.sh build)
-menubar/VitalsMenu.app/
+menubar/QuillmeterMenu.app/
 
-# Vitals keeps its data in ~/.pulse, but ignore a local copy if one is ever used
-.pulse/
+# Quillmeter keeps its data in ~/.quillmeter, but ignore a local copy if one is ever used
+.quillmeter/
 
 # Editors
 .vscode/

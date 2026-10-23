@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-// Vitals MCP server (stdio). Lets an AI assistant ask what is running on this Mac.
+// Quillmeter MCP server (stdio). Lets an AI assistant ask what is running on this Mac.
 // Read-only by design: there is no tool that quits, stops or changes anything.
-// It talks to the local Vitals server (VITALS_URL, default http://127.0.0.1:4747), so Vitals must be running.
+// It talks to the local Quillmeter server (QUILLMETER_URL, default http://127.0.0.1:4747), so Quillmeter must be running.
 'use strict';
 const http = require('node:http');
 const readline = require('node:readline');
 
-const BASE = new URL(process.env.VITALS_URL || 'http://127.0.0.1:4747');
+const BASE = new URL(process.env.QUILLMETER_URL || 'http://127.0.0.1:4747');
 const get = (p) => new Promise((resolve, reject) => {
   http.get(new URL(p, BASE), { timeout: 8000 }, (res) => {
     let b = '';
     res.on('data', (d) => (b += d));
-    res.on('end', () => (res.statusCode === 200 ? resolve(JSON.parse(b)) : reject(new Error(`Vitals answered ${res.statusCode}`))));
+    res.on('end', () => (res.statusCode === 200 ? resolve(JSON.parse(b)) : reject(new Error(`Quillmeter answered ${res.statusCode}`))));
   }).on('error', reject).on('timeout', function () { this.destroy(new Error('timed out')); });
 });
 const round = (n, d = 1) => Math.round(n * 10 ** d) / 10 ** d;
@@ -20,7 +20,7 @@ const gb = (n) => round(n / 1e9, 2);
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const TOOLS = [
   {
-    name: 'vitals_status',
+    name: 'quillmeter_status',
     description: 'Current CPU, memory, disk, network, GPU and battery figures for this Mac.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run: async () => {
@@ -38,7 +38,7 @@ const TOOLS = [
     },
   },
   {
-    name: 'vitals_apps',
+    name: 'quillmeter_apps',
     description: 'Apps ranked by memory or CPU, with each app\'s helper processes added into one row. CPU is percent of one core.',
     inputSchema: {
       type: 'object',
@@ -57,7 +57,7 @@ const TOOLS = [
     },
   },
   {
-    name: 'vitals_dev_servers',
+    name: 'quillmeter_dev_servers',
     description: 'Dev servers listening on ports under the home folder, grouped by project, with idle status.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run: async () => (await get('/api/projects')).filter((p) => p.dev).map((p) => ({
@@ -65,7 +65,7 @@ const TOOLS = [
     })),
   },
   {
-    name: 'vitals_agents',
+    name: 'quillmeter_agents',
     description: 'Running coding agents (Claude Code, Codex, Cursor Agent, Gemini CLI, OpenCode, Aider), what each started, and Claude Code token counts for today.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run: async () => {
@@ -77,8 +77,8 @@ const TOOLS = [
     },
   },
   {
-    name: 'vitals_alerts',
-    description: 'Alerts Vitals has raised: apps holding the CPU, apps growing in memory, low memory or battery. Active ones first, then recent history.',
+    name: 'quillmeter_alerts',
+    description: 'Alerts Quillmeter has raised: apps holding the CPU, apps growing in memory, low memory or battery. Active ones first, then recent history.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run: async () => {
       const a = await get('/api/alerts');
@@ -94,7 +94,7 @@ const fail = (id, code, message) => send({ id, error: { code, message } });
 async function handle(msg) {
   const { id, method, params = {} } = msg;
   if (method === 'initialize') {
-    return send({ id, result: { protocolVersion: params.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'vitals', version: '3.0.0' } } });
+    return send({ id, result: { protocolVersion: params.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'quillmeter', version: '3.0.0' } } });
   }
   if (method === 'notifications/initialized' || method === 'notifications/cancelled') return; // notifications get no reply
   if (method === 'ping') return send({ id, result: {} });
@@ -109,7 +109,7 @@ async function handle(msg) {
       return send({ id, result: { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] } });
     } catch (e) {
       // Tool failures are reported to the model as results, not protocol errors.
-      return send({ id, result: { isError: true, content: [{ type: 'text', text: `Vitals isn't reachable at ${BASE.origin} (${e.message}). Start it with service/service.sh install.` }] } });
+      return send({ id, result: { isError: true, content: [{ type: 'text', text: `Quillmeter isn't reachable at ${BASE.origin} (${e.message}). Start it with service/service.sh install.` }] } });
     }
   }
   if (id !== undefined) fail(id, -32601, `Method not found: ${method}`);

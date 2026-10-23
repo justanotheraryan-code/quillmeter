@@ -1,5 +1,5 @@
 const TABS = ['Overview', 'Apps', 'CPU', 'Memory', 'Disk', 'Network', 'GPU', 'Battery', 'History', 'Alerts', 'Projects', 'Docker', 'Agents', 'Settings'];
-let settings = { bits: false, cpuPerMac: false, palette: 'vitals', compact: false, retentionDays: 7, nativeNotify: true, tabs: { order: [], hidden: [] }, overview: { order: [], hidden: [] } };
+let settings = { bits: false, cpuPerMac: false, palette: 'quillmeter', compact: false, retentionDays: 7, nativeNotify: true, tabs: { order: [], hidden: [] }, overview: { order: [], hidden: [] } };
 let notice = '', renderedTab = null;
 const OVERVIEW_CARDS = [['cpu', 'CPU'], ['memory', 'Memory'], ['disk', 'Disk'], ['network', 'Network'], ['gpu', 'GPU'], ['battery', 'Battery'], ['apps', 'Top apps']];
 // Saved order first (ignoring ids that no longer exist), then anything new in default order; hidden ids removed.
@@ -16,11 +16,11 @@ function renderTabs() {
   markTabs();
 }
 // Every POST carries a custom header; the server rejects POSTs without it so other websites can't call the API.
-const post = (url, body) => fetch(url, { method: 'POST', headers: { 'X-Vitals': '1', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-let tab = localStorage.getItem('pulse.tab') || 'Overview';
+const post = (url, body) => fetch(url, { method: 'POST', headers: { 'X-Quillmeter': '1', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+let tab = localStorage.getItem('quillmeter.tab') || 'Overview';
 if (!TABS.includes(tab)) tab = 'Overview';
 let snap = null, projects = [], sortKey = 'mem', filter = '';
-let range = localStorage.getItem('pulse.range') || '1h', histData = null, alertLog = [];
+let range = localStorage.getItem('quillmeter.range') || '1h', histData = null, alertLog = [];
 let agents = [], showSys = false, diskData = null, docker = null, tokens = null;
 const compact = (n) => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n));
 const ACCENT = { CPU: 'var(--blue)', Memory: 'var(--green)', Disk: 'var(--orange)', Network: 'var(--indigo)', GPU: 'var(--teal)', Docker: 'var(--blue)', Battery: 'var(--green)' };
@@ -40,7 +40,7 @@ const bitsFmt = (n) => { const u = ['bit', 'kbit', 'Mbit', 'Gbit']; let v = n * 
 const netRate = (n) => (settings.bits ? bitsFmt(n) + '/s' : rate(n));
 const cpuFmt = (v) => (settings.cpuPerMac && snap ? v / snap.cpu.cores : v).toFixed(1) + '%';
 const PALETTES = {
-  vitals: {},
+  quillmeter: {},
   mono: { '--blue': '#6e6e73', '--green': '#8e8e93', '--orange': '#48484a', '--indigo': '#636366', '--teal': '#aeaeb2' },
   accessible: { '--blue': '#0072B2', '--green': '#009E73', '--orange': '#E69F00', '--indigo': '#CC79A7', '--teal': '#56B4E9', '--red': '#D55E00' },
 };
@@ -170,7 +170,7 @@ const views = {
     return hero({ label: 'Charge', value: b.percent, unit: '%', color: low ? 'var(--red)' : 'var(--green)', series: hist('bat'), max: 100, chart: 'Charge, last 10 minutes',
       kv: [['State', b.state], ['Source', b.onBattery ? 'Battery' : 'Power adapter'], ['Remaining', b.remaining || '—']] })
       + `<div class="tiles">${tile('Health', b.maxCapacity != null ? b.maxCapacity + '%' + (b.condition ? ' · ' + esc(b.condition) : '') : '—', 'var(--green)', '♥')}${tile('Cycles', b.cycles != null ? b.cycles + ' of ' + (b.designCycles || '—') : '—', 'var(--green)', '↻')}${tile(b.charging ? 'Charging at' : b.onBattery ? 'Power draw' : 'Power', watts, 'var(--orange)', 'W')}${tile('Thermal state', b.thermal ? b.thermal[0].toUpperCase() + b.thermal.slice(1) : '—', b.thermal === 'elevated' ? 'var(--red)' : 'var(--teal)', '°')}</div>
-      <p class="hint">Health is the figure macOS reports for maximum capacity. Cycles are counted against the design limit. This Mac exposes no battery or CPU temperature without root, so Vitals shows macOS's thermal state instead.</p>`;
+      <p class="hint">Health is the figure macOS reports for maximum capacity. Cycles are counted against the design limit. This Mac exposes no battery or CPU temperature without root, so Quillmeter shows macOS's thermal state instead.</p>`;
   },
   GPU() {
     const g = snap.gpu;
@@ -182,7 +182,7 @@ const views = {
   Docker() {
     const d = docker;
     if (!d) return '<div class="card">Checking Docker…</div>';
-    if (d.state === 'missing') return '<div class="card">Docker is not installed. Vitals looks for the docker command from Docker Desktop, OrbStack, Colima and Homebrew.</div>';
+    if (d.state === 'missing') return '<div class="card">Docker is not installed. Quillmeter looks for the docker command from Docker Desktop, OrbStack, Colima and Homebrew.</div>';
     if (d.state === 'stopped') return '<div class="card">Docker is installed but not running. Start Docker and this tab fills in.</div>';
     const total = d.containers.reduce((s, c) => s + c.mem, 0);
     const rows = d.containers.map((c) => `<tr><td>${esc(c.name)}<div class="hint" style="margin:0">${esc(c.image)}</div></td><td class="num">${c.cpu.toFixed(1)}%</td><td class="num">${bytes(c.mem)}<div class="hint" style="margin:0">of ${bytes(c.memLimit)}</div></td><td class="num">↓ ${bytes(c.netIn)}<br>↑ ${bytes(c.netOut)}</td><td>${esc(c.ports) || '—'}<div class="hint" style="margin:0">${esc(c.status)}</div></td></tr>`).join('');
@@ -194,7 +194,7 @@ const views = {
     const opts = [['1h', 0], ['24h', 0], ['7d', 7], ['30d', 30], ['90d', 90], ['180d', 180], ['365d', 365]].filter(([, d]) => d <= settings.retentionDays);
     if (!opts.some(([r]) => r === range)) range = '1h';
     const ranges = opts.map(([r]) => `<button data-range="${r}" class="${r === range ? 'on' : ''}">${r === '365d' ? '1y' : r}</button>`).join('');
-    if (!h || h.series.length < 2) return `<div class="seg">${ranges}</div><div class="card">Collecting data. Vitals saves one point per minute, so the first chart appears after a couple of minutes.</div>`;
+    if (!h || h.series.length < 2) return `<div class="seg">${ranges}</div><div class="card">Collecting data. Quillmeter saves one point per minute, so the first chart appears after a couple of minutes.</div>`;
     const t = (ms) => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     const s = h.series, last = s[s.length - 1];
     const chart = (title, key, fmt, max, color) => `<div class="card"><h3>${title}</h3><div class="big">${fmt(last[key])}</div>${spark(s.map((p) => p[key]), max, color)}<div class="row"><span>${t(s[0].t)}</span><span>${t(last.t)}</span></div></div>`;
@@ -202,13 +202,13 @@ const views = {
     return `<div class="seg">${ranges}</div>
       <div class="grid">${chart('CPU (avg)', 'cpu', (v) => pct(v) + '%', 100)}${chart('Memory in use', 'mem', bytes, snap.memory.total)}${chart('Download', 'down', netRate, 0)}</div>
       <div class="grid" style="margin-top:16px">${tbl('Most CPU over this range', h.topCpu, ['Avg CPU', (r) => cpuFmt(r.avgCpu)], ['Avg memory', (r) => bytes(r.avgMem)])}${tbl('Most memory over this range', h.topMem, ['Avg memory', (r) => bytes(r.avgMem)], ['Peak', (r) => bytes(r.peakMem)])}</div>
-      <p class="hint">${h.minutes} ${h.unit || 'minutes'} of saved data since ${t(h.since)}. Stored in ~/.pulse and kept for ${settings.retentionDays} days: per-minute for 7 days, hourly averages after that. Per-app figures cover each ${h.unit === 'hours' ? 'hour' : 'minute'}'s top apps.</p>`;
+      <p class="hint">${h.minutes} ${h.unit || 'minutes'} of saved data since ${t(h.since)}. Stored in ~/.quillmeter and kept for ${settings.retentionDays} days: per-minute for 7 days, hourly averages after that. Per-app figures cover each ${h.unit === 'hours' ? 'hour' : 'minute'}'s top apps.</p>`;
   },
   Alerts() {
     const perm = 'Notification' in window ? Notification.permission : 'unsupported';
     const btn = perm === 'default' ? '<button class="act" data-notify>Enable notifications</button>' : `<span class="pill ${perm === 'granted' ? 'ok' : ''}">notifications ${perm}</span>`;
     const rows = alertLog.map((a) => `<tr><td><span class="pill ${a.level === 'warn' ? 'warn' : 'bad'}">${a.level}</span> ${esc(a.title)}<div class="hint" style="margin:0">${esc(a.detail)}</div></td><td class="num">${new Date(a.t).toLocaleString()}</td></tr>`).join('');
-    return `<div style="margin-bottom:16px">${btn}</div><div class="card pad"><table><tbody>${rows || '<tr><td>No alerts yet. Vitals warns when an app holds the CPU, keeps growing in memory, or the Mac runs low.</td></tr>'}</tbody></table></div>`;
+    return `<div style="margin-bottom:16px">${btn}</div><div class="card pad"><table><tbody>${rows || '<tr><td>No alerts yet. Quillmeter warns when an app holds the CPU, keeps growing in memory, or the Mac runs low.</td></tr>'}</tbody></table></div>`;
   },
   Projects() {
     const dev = projects.filter((p) => p.dev), sys = projects.filter((p) => !p.dev);
@@ -222,7 +222,7 @@ const views = {
     return `<p class="hint" style="margin-top:0">${dev.length} dev server${dev.length === 1 ? '' : 's'}${dev.length ? ` · ${idle} idle` : ''}. Grouped by git repository.</p>
       ${groups || '<div class="card">No dev servers found under your home folder.</div>'}
       ${sys.length ? `<button class="act" data-sys>${showSys ? 'Hide' : 'Show'} ${sys.length} system listeners</button>${showSys ? `<div class="card pad" style="margin-top:12px"><table><tbody>${sysRows}</tbody></table></div>` : ''}` : ''}
-      <p class="hint">Stop sends a polite SIGTERM after you confirm. Idle means no CPU use for 30 minutes while Vitals was watching, or days of uptime with almost no CPU time.</p>`;
+      <p class="hint">Stop sends a polite SIGTERM after you confirm. Idle means no CPU use for 30 minutes while Quillmeter was watching, or days of uptime with almost no CPU time.</p>`;
   },
   Settings() {
     const s = settings;
@@ -231,17 +231,17 @@ const views = {
     return `<div class="card">
       ${row('Network speed', 'Show network rates in bytes or bits per second.', sel('bits', [[false, 'Bytes (MB/s)'], [true, 'Bits (Mbit/s)']]))}
       ${row('CPU per app', 'Percent of a single core can exceed 100%. Percent of the Mac divides by the core count.', sel('cpuPerMac', [[false, 'Percent of one core'], [true, 'Percent of the whole Mac']]))}
-      ${row('Chart colors', 'Vitals colors, gray charts, or a set people with color blindness can tell apart.', sel('palette', [['vitals', 'Vitals'], ['mono', 'Monochrome'], ['accessible', 'Accessible']]))}
+      ${row('Chart colors', 'Quillmeter colors, gray charts, or a set people with color blindness can tell apart.', sel('palette', [['quillmeter', 'Quillmeter'], ['mono', 'Monochrome'], ['accessible', 'Accessible']]))}
       ${row('Layout', 'A compact layout fits a small screen.', sel('compact', [[false, 'Comfortable'], [true, 'Compact']]))}
       ${row('History kept', 'Per-minute detail is kept for 7 days. Longer periods are kept as hourly averages.', sel('retentionDays', [[7, '7 days'], [30, '30 days'], [90, '90 days'], [180, '6 months'], [365, '1 year']]))}
       ${row('Mac notifications', 'Show alerts as native macOS notifications, even with this page closed.', sel('nativeNotify', [[true, 'On'], [false, 'Off']]) + ' <button class="act" data-testnotify>Send test</button>')}
     </div>
     <h3 style="margin:24px 0 8px">Arrange</h3>
     <div class="grid">${arrangeList('tabs', 'Tabs', TABS.map((t) => [t, t]), settings.tabs, 'Settings')}${arrangeList('overview', 'Overview cards', OVERVIEW_CARDS, settings.overview)}</div>
-    <p class="hint"><button class="act" data-resetarrange>Reset arrangement</button> Settings are saved in ~/.pulse/settings.json.</p>`;
+    <p class="hint"><button class="act" data-resetarrange>Reset arrangement</button> Settings are saved in ~/.quillmeter/settings.json.</p>`;
   },
   Agents() {
-    if (!agents.length) return tokenCard() + '<div class="card">No coding agents running. Vitals looks for Claude Code, Codex, Cursor Agent, Gemini CLI, OpenCode and Aider.</div>';
+    if (!agents.length) return tokenCard() + '<div class="card">No coding agents running. Quillmeter looks for Claude Code, Codex, Cursor Agent, Gemini CLI, OpenCode and Aider.</div>';
     const rows = agents.map((a) => `<div class="card pad" style="margin-bottom:16px"><h3>${esc(a.agent)} · ${esc(a.project)}</h3><div class="hint" style="margin:0 0 8px">${esc(a.cwd)} · up ${esc(a.uptime)} · pid ${a.pid}</div><div class="row"><span>${a.procCount} process${a.procCount > 1 ? 'es' : ''} in total</span><b>${cpuFmt(a.cpu)} CPU · ${bytes(a.mem)}</b></div>${a.started.length ? `<div style="margin-top:8px">${a.started.map((s) => `<span class="pill">${esc(s.name)}${s.n > 1 ? ' ×' + s.n : ''}</span>`).join(' ')}</div>` : ''}</div>`).join('');
     return `${tokenCard()}<p class="hint" style="margin-top:0">${agents.length} agent session${agents.length > 1 ? 's' : ''} running, with everything each one started.</p>${rows}`;
   },
@@ -273,7 +273,7 @@ function exportCard(theme) {
   const rr = (x, y, w, h, r, fill) => { g.beginPath(); g.roundRect(x, y, w, h, r); g.fillStyle = fill; g.fill(); };
   g.fillStyle = C.bg; g.fillRect(0, 0, 1200, 630);
   rr(48, 48, 40, 40, 10, blue);
-  g.fillStyle = C.ink; font(700, 34); g.fillText('Vitals', 104, 80);
+  g.fillStyle = C.ink; font(700, 34); g.fillText('Quillmeter', 104, 80);
   g.fillStyle = C.muted; font(400, 20); g.fillText(`${snap.host.model} · ${(snap.memory.total / 1e9).toFixed(0)} GB`, 48, 124);
   const m = snap.memory;
   rr(48, 150, 540, 190, 24, C.panel);
@@ -304,7 +304,7 @@ function downloadCard(theme) {
   exportCard(theme).toBlob((blob) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `vitals-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png`;
+    a.download = `quillmeter-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   });
@@ -397,13 +397,13 @@ document.addEventListener('click', async (e) => {
   if (qp) { await quit('pid=' + qp.dataset.qpid, qp.dataset.name, 1, false); return; }
   if (e.target.closest('[data-testnotify]')) { await post('/api/notify-test'); return; }
   const t = e.target.closest('[data-t]');
-  if (t) { tab = t.dataset.t; localStorage.setItem('pulse.tab', tab); markTabs(); render(true); poll(); return; }
+  if (t) { tab = t.dataset.t; localStorage.setItem('quillmeter.tab', tab); markTabs(); render(true); poll(); return; }
   const th = e.target.closest('[data-sort]');
   if (th) { sortKey = th.dataset.sort; render(); return; }
   const row = e.target.closest('tr.app');
   if (row) { const n = row.dataset.app; open.has(n) ? open.delete(n) : open.add(n); render(); return; }
   const rg = e.target.closest('[data-range]');
-  if (rg) { range = rg.dataset.range; localStorage.setItem('pulse.range', range); await poll(); return; }
+  if (rg) { range = rg.dataset.range; localStorage.setItem('quillmeter.range', range); await poll(); return; }
   if (e.target.closest('[data-scan]')) { await post('/api/disk/scan'); await poll(); return; }
   if (e.target.closest('[data-sys]')) { showSys = !showSys; render(); return; }
   if (e.target.closest('[data-notify]')) { await Notification.requestPermission(); render(); return; }

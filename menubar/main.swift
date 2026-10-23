@@ -1,10 +1,10 @@
-// Vitals menu bar item. A small native AppKit app that reads the local Vitals server
-// (http://127.0.0.1:4747 by default, VITALS_URL to change) and shows CPU and memory in the menu bar.
-// Click it for every figure and the busiest apps. `VitalsMenu --print` prints what it would show and exits.
+// Quillmeter menu bar item. A small native AppKit app that reads the local Quillmeter server
+// (http://127.0.0.1:4747 by default, QUILLMETER_URL to change) and shows CPU and memory in the menu bar.
+// Click it for every figure and the busiest apps. `QuillmeterMenu --print` prints what it would show and exits.
 import AppKit
 import Foundation
 
-let base = URL(string: ProcessInfo.processInfo.environment["VITALS_URL"] ?? "http://127.0.0.1:4747")!
+let base = URL(string: ProcessInfo.processInfo.environment["QUILLMETER_URL"] ?? "http://127.0.0.1:4747")!
 
 struct Snap: Decodable {
     struct CPU: Decodable { let total: Double; let cores: Int }
@@ -64,7 +64,7 @@ if CommandLine.arguments.contains("--print") {
     var out: Snap?
     fetch { out = $0; sem.signal() }
     _ = sem.wait(timeout: .now() + 5)
-    guard let s = out else { FileHandle.standardError.write(Data("Vitals is not reachable at \(base.absoluteString)\n".utf8)); exit(1) }
+    guard let s = out else { FileHandle.standardError.write(Data("Quillmeter is not reachable at \(base.absoluteString)\n".utf8)); exit(1) }
     let d = describe(s)
     print("title: \(d.title)\(d.hot ? "  [red]" : "")")
     d.lines.forEach { print("  \($0)") }
@@ -82,7 +82,7 @@ final class Controller: NSObject, NSMenuDelegate {
         super.init()
         menu.delegate = self
         item.menu = menu
-        setTitle("Vitals…", hot: false)
+        setTitle("Quillmeter…", hot: false)
         tick()
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.tick() }
     }
@@ -101,7 +101,7 @@ final class Controller: NSObject, NSMenuDelegate {
                 guard let self = self else { return }
                 self.snap = s
                 if let s = s { let d = describe(s); self.setTitle(d.title, hot: d.hot) }
-                else { self.setTitle("Vitals: offline", hot: false) }
+                else { self.setTitle("Quillmeter: offline", hot: false) }
             }
         }
     }
@@ -124,18 +124,18 @@ final class Controller: NSObject, NSMenuDelegate {
             label("Busiest right now", bold: true)
             d.busiest.forEach { label($0) }
         } else {
-            label("Vitals is not running. Start it with service/service.sh install.")
+            label("Quillmeter is not running. Start it with service/service.sh install.")
         }
         menu.addItem(.separator())
-        let open = NSMenuItem(title: "Open Vitals", action: #selector(openVitals), keyEquivalent: "o")
+        let open = NSMenuItem(title: "Open Quillmeter", action: #selector(openQuillmeter), keyEquivalent: "o")
         open.target = self
         menu.addItem(open)
-        let quit = NSMenuItem(title: "Quit Vitals Menu", action: #selector(quitApp), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Quillmeter Menu", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
     }
 
-    @objc func openVitals() { NSWorkspace.shared.open(base) }
+    @objc func openQuillmeter() { NSWorkspace.shared.open(base) }
     @objc func quitApp() { NSApp.terminate(nil) }
 }
 

@@ -1,23 +1,23 @@
 #!/usr/bin/env node
-// vitals: print what the running Vitals server sees, as a table or as JSON.
-//   vitals status | apps [--sort cpu|mem] [--top N] | ports | agents    add --json for machine output
+// quillmeter: print what the running Quillmeter server sees, as a table or as JSON.
+//   quillmeter status | apps [--sort cpu|mem] [--top N] | ports | agents    add --json for machine output
 const http = require('node:http');
 
-const BASE = new URL(process.env.VITALS_URL || 'http://127.0.0.1:4747');
+const BASE = new URL(process.env.QUILLMETER_URL || 'http://127.0.0.1:4747');
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
 const opt = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 && args[i + 1] ? args[i + 1] : fallback; };
 const cmd = args.find((a) => !a.startsWith('--') && !['cpu', 'mem'].includes(a) && !/^\d+$/.test(a)) || 'status';
 
-const HELP = `vitals: what is running on this Mac
+const HELP = `quillmeter: what is running on this Mac
 
-  vitals status                        CPU, memory, disk, network and battery
-  vitals apps [--sort cpu|mem] [--top N]  apps with their helpers added up (default: memory, top 15)
-  vitals ports                         dev servers and the ports they hold
-  vitals agents                        running coding agents and what they started
+  quillmeter status                        CPU, memory, disk, network and battery
+  quillmeter apps [--sort cpu|mem] [--top N]  apps with their helpers added up (default: memory, top 15)
+  quillmeter ports                         dev servers and the ports they hold
+  quillmeter agents                        running coding agents and what they started
 
   --json    print JSON instead of a table
-  Server:   ${BASE.origin} (set VITALS_URL to change)`;
+  Server:   ${BASE.origin} (set QUILLMETER_URL to change)`;
 
 const bytes = (n) => {
   const u = ['B', 'kB', 'MB', 'GB', 'TB']; let i = 0;
@@ -43,7 +43,7 @@ function table(headers, rows, right = []) {
   try {
     data = await get(cmd === 'ports' ? '/api/projects' : cmd === 'agents' ? '/api/agents' : '/api/snapshot');
   } catch (e) {
-    console.error(`Vitals isn't reachable at ${BASE.origin} (${e.message}).\nStart it with: node server.js   or install the login service: service/service.sh install`);
+    console.error(`Quillmeter isn't reachable at ${BASE.origin} (${e.message}).\nStart it with: node server.js   or install the login service: service/service.sh install`);
     process.exit(1);
   }
   if (flag('json')) {
