@@ -2,11 +2,13 @@
 //  - starts the bundled Node server (or attaches to one that is already running on the port) and stops it on quit
 //  - shows the dashboard in a native window, plus a menu bar item with CPU and memory
 //  - launch at login through SMAppService
-// Flags: --background (no window at launch), --login on|off|status, --print, --selftest.
+// A Settings window (Command-,) shows the same dashboard in settings mode. Export Image uses a save panel, so no
+// folder permission is needed. Flags: --background (no window at launch), --login on|off|status, --print, --selftest.
 import AppKit
 import WebKit
 import ServiceManagement
 import Foundation
+import UniformTypeIdentifiers
 
 let env = ProcessInfo.processInfo.environment
 let port = Int(env["QUILLMETER_PORT"] ?? "") ?? 4747
@@ -195,7 +197,7 @@ func launchedAsLoginItem() -> Bool {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate,
-                         WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate {
+                         WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     let server = ServerManager()
     let selfTest = args.contains("--selftest")
     var item: NSStatusItem?
@@ -204,8 +206,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     var snap: Snap?
     var window: NSWindow?
     var web: WKWebView?
+    var settingsWindow: NSWindow?
+    var settingsWeb: WKWebView?
     var serverReady = false
-    var downloads: [ObjectIdentifier: URL] = [:]
+    var targets: [ObjectIdentifier: URL] = [:]
 
     func applicationDidFinishLaunching(_ n: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -215,7 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         server.start { err in
             if let err = err { self.alert("Quillmeter could not start", err); return }
             self.serverReady = true
-            self.web?.load(URLRequest(url: base))
+            if let w = self.web { self.load(w, base) }
+            if let w = self.settingsWeb { self.load(w, self.settingsURL(nil)) }
             self.pushNativeState()
         }
         if !args.contains("--background") && !launchedAsLoginItem() { showWindow() }
@@ -227,16 +232,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     // MARK: Window
 
-    func makeWebView() -> WKWebView {
+    func makeWebView(size: NSSize = NSSize(width: 1100, height: 820)) -> WKWebView {
         let cfg = WKWebViewConfiguration()
         cfg.userContentController.add(self, name: "native")
         cfg.userContentController.addUserScript(WKUserScript(source: "window.quillmeterNative = \(nativeStateJSON());", injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        let w = WKWebView(frame: NSRect(x: 0, y: 0, width: 1100, height: 820), configuration: cfg)
+        let w = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: cfg)
         w.navigationDelegate = self
         w.uiDelegate = self
         w.customUserAgent = "QuillmeterApp/\(appVersion)"
-        w.loadHTMLString("<body style='font:14px -apple-system;color:#6e6e73;padding:32px;background:#f5f5f7'>Starting Quillmeter…</body>", baseURL: nil)
+        w.loadHTMLString("<body style='font:13px -apple-system;color:#636366;padding:32px;background:#f5f5f7'>Starting Quillmeter…</body>", baseURL: nil)
         return w
+    }
+
+    func load(_ w: WKWebView, _ url: URL) { targets[ObjectIdentifier(w)] = url; w.load(URLRequest(url: url)) }
+    func settingsURL(_ pane: String?) -> URL {
+        var c = URLComponents(url: base, resolvingAgainstBaseURL: false)!
+        c.queryItems = [URLQueryItem(name: "settings", value: "1")] + (pane.map { [URLQueryItem(name: "pane", value: $0)] } ?? [])
+        return c.url!
     }
 
     func showWindow() {
@@ -252,14 +264,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             w.contentView = v
             web = v
             window = w
-            if serverReady { v.load(URLRequest(url: base)) }
+            if serverReady { load(v, base) }
         }
-        NSApp.setActivationPolicy(.regular) // Dock icon and menu while the window is open
+        NSApp.setActivationPolicy(.regular) // Dock icon and menu while a window is open
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func windowWillClose(_ n: Notification) { NSApp.setActivationPolicy(.accessory) }
+    /// The Settings window: fixed size, no minimize or zoom (it opens instantly with Command-comma), restores its last pane.
+    func showSettings(pane: String? = nil) {
+        if let v = settingsWeb, settingsWindow != nil {
+            if let p = pane { v.evaluateJavaScript("window.setPane && window.setPane('\(p)')", completionHandler: nil) }
+        } else {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 640), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            w.title = "Quillmeter Settings"
+            w.isReleasedWhenClosed = false
+            w.delegate = self
+            w.setFrameAutosaveName("QuillmeterSettings")
+            if !w.setFrameUsingName("QuillmeterSettings") { w.center() }
+            let v = makeWebView(size: NSSize(width: 600, height: 640))
+            w.contentView = v
+            settingsWeb = v
+            settingsWindow = w
+            if serverReady { load(v, settingsURL(pane)) }
+        }
+        NSApp.setActivationPolicy(.regular)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    @objc func openSettingsMenu() { showSettings() }
+
+    func windowWillClose(_ n: Notification) {
+        // Back to a menu bar app once no window is left on screen.
+        DispatchQueue.main.async {
+            if !(self.window?.isVisible ?? false) && !(self.settingsWindow?.isVisible ?? false) { NSApp.setActivationPolicy(.accessory) }
+        }
+    }
 
     // MARK: Native bridge
 
@@ -268,11 +308,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let data = (try? JSONSerialization.data(withJSONObject: d)) ?? Data("{}".utf8)
         return String(data: data, encoding: .utf8) ?? "{}"
     }
-    func pushNativeState() { web?.evaluateJavaScript("window.onNativeState && window.onNativeState(\(nativeStateJSON()))", completionHandler: nil) }
+    func pushNativeState() { for v in [web, settingsWeb] { v?.evaluateJavaScript("window.onNativeState && window.onNativeState(\(nativeStateJSON()))", completionHandler: nil) } }
 
     func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
-        guard let body = m.body as? [String: Any], let on = body["launchAtLogin"] as? Bool else { return }
-        setLogin(on)
+        guard let body = m.body as? [String: Any] else { return }
+        if let on = body["launchAtLogin"] as? Bool { setLogin(on) }
+        if body["openSettings"] as? Bool == true { showSettings(pane: body["pane"] as? String) }
+        if let data = body["saveImage"] as? String { saveImage(dataURL: data, name: (body["name"] as? String) ?? "quillmeter.png") }
+    }
+
+    /// Export Image: a save panel, so the person picks the place and macOS needs no folder permission.
+    func saveImage(dataURL: String, name: String) {
+        guard let comma = dataURL.firstIndex(of: ","), let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])) else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = (name as NSString).lastPathComponent
+        panel.canCreateDirectories = true
+        NSApp.activate(ignoringOtherApps: true)
+        panel.begin { resp in
+            guard resp == .OK, let url = panel.url else { return }
+            do { try data.write(to: url); NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            catch { self.alert("Couldn\u{2019}t Save Image", error.localizedDescription) }
+        }
     }
 
     func setLogin(_ on: Bool) {
@@ -285,18 +342,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     // MARK: WebKit delegates
 
     func webView(_ w: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if action.shouldPerformDownload { decisionHandler(.download); return }
+        if action.shouldPerformDownload { decisionHandler(.cancel); return }
         if let url = action.request.url, (url.scheme == "http" || url.scheme == "https"), url.host != "127.0.0.1" {
             NSWorkspace.shared.open(url) // external links open in the default browser
             decisionHandler(.cancel); return
         }
         decisionHandler(.allow)
     }
-    func webView(_ w: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) { download.delegate = self }
-    func webView(_ w: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) { download.delegate = self }
     func webView(_ w: WKWebView, didFailProvisionalNavigation nav: WKNavigation!, withError error: Error) {
         guard serverReady else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { w.load(URLRequest(url: base)) } // server restarting: retry
+        let url = targets[ObjectIdentifier(w)] ?? base
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { w.load(URLRequest(url: url)) } // server restarting: retry
     }
 
     // The page uses confirm() before quitting an app, which WKWebView only supports through this delegate.
@@ -314,23 +370,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         completionHandler()
     }
 
-    // Export image: the page saves a blob with an <a download>; save it to Downloads and reveal it.
-    func download(_ d: WKDownload, decideDestinationUsing r: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
-        let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
-        var url = dir.appendingPathComponent(suggestedFilename), n = 1
-        let stem = url.deletingPathExtension().lastPathComponent, ext = url.pathExtension
-        while FileManager.default.fileExists(atPath: url.path) { url = dir.appendingPathComponent("\(stem) \(n).\(ext)"); n += 1 }
-        downloads[ObjectIdentifier(d)] = url
-        completionHandler(url)
-    }
-    func downloadDidFinish(_ d: WKDownload) {
-        if let url = downloads.removeValue(forKey: ObjectIdentifier(d)) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-    }
-    func download(_ d: WKDownload, didFailWithError error: Error, resumeData: Data?) {
-        downloads.removeValue(forKey: ObjectIdentifier(d))
-        alert("Download failed", error.localizedDescription)
-    }
-
     func alert(_ title: String, _ text: String) {
         let a = NSAlert()
         a.messageText = title
@@ -346,6 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         appMenu.delegate = self
         appMenu.addItem(withTitle: "About Quillmeter", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
+        let settingsItem = NSMenuItem(title: "Settings\u{2026}", action: #selector(openSettingsMenu), keyEquivalent: ","); settingsItem.target = self; appMenu.addItem(settingsItem)
         let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLogin), keyEquivalent: ""); login.target = self; appMenu.addItem(login)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Quillmeter", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
@@ -359,6 +399,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
+        let viewItem = NSMenuItem(); main.addItem(viewItem)
+        let view = NSMenu(title: "View"); viewItem.submenu = view
+        let side = NSMenuItem(title: "Hide or Show Sidebar", action: #selector(toggleSidebar), keyEquivalent: "s")
+        side.keyEquivalentModifierMask = [.control, .command]; side.target = self; view.addItem(side)
+
         let winItem = NSMenuItem(); main.addItem(winItem)
         let win = NSMenu(title: "Window"); winItem.submenu = win
         let reload = NSMenuItem(title: "Reload", action: #selector(reloadPage), keyEquivalent: "r"); reload.target = self; win.addItem(reload)
@@ -366,7 +411,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         win.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         NSApp.mainMenu = main
     }
-    @objc func reloadPage() { web?.load(URLRequest(url: base)) }
+    @objc func reloadPage() { if let w = web { load(w, base) } }
+    @objc func toggleSidebar() { web?.evaluateJavaScript("window.toggleSidebar && window.toggleSidebar()", completionHandler: nil) }
 
     func setupStatusItem() {
         let it = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -420,6 +466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         } else { label("Starting…") }
         menu.addItem(.separator())
         let open = NSMenuItem(title: "Open Quillmeter", action: #selector(openWindow), keyEquivalent: "o"); open.target = self; menu.addItem(open)
+        let prefs = NSMenuItem(title: "Settings\u{2026}", action: #selector(openSettingsMenu), keyEquivalent: ","); prefs.target = self; menu.addItem(prefs)
         let browser = NSMenuItem(title: "Open in Browser", action: #selector(openBrowser), keyEquivalent: ""); browser.target = self; menu.addItem(browser)
         let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLogin), keyEquivalent: ""); login.target = self
         login.state = Login.enabled ? .on : .off
@@ -438,14 +485,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             self.serverReady = true
             let v = self.makeWebView()
             self.web = v
-            v.load(URLRequest(url: base))
+            self.load(v, base)
+            let sv = self.makeWebView(size: NSSize(width: 600, height: 640))
+            self.settingsWeb = sv
+            self.load(sv, self.settingsURL("folders"))
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
-                let js = "JSON.stringify({title: document.title, tabs: document.querySelectorAll('#tabs button').length, native: !!window.quillmeterNative, host: document.getElementById('host').textContent, hasLoginRow: document.body.innerText.length > 0})"
-                v.evaluateJavaScript(js) { result, error in
-                    print("selftest: version=\(appVersion) serverStartedByApp=\(self.server.weStarted) loginStatus=\(Login.label)")
-                    print("selftest: page=\(result as? String ?? "nil") error=\(error?.localizedDescription ?? "none")")
-                    self.server.stop()
-                    exit(error == nil && result != nil ? 0 : 1)
+                let js = "JSON.stringify({title: document.title, sidebarItems: document.querySelectorAll('.side-item').length, groups: document.querySelectorAll('.side-group:not(:empty)').length, setupSheet: !!document.querySelector('.sheet'), sheetFolders: document.querySelectorAll('.sheet [data-folder]').length, sheetChecked: document.querySelectorAll('.sheet [data-folder]:checked').length, native: !!window.quillmeterNative, host: document.getElementById('hostline').textContent})"
+                let js2 = "JSON.stringify({mode: document.body.classList.contains('settings-mode'), title: document.getElementById('title').textContent, panes: document.querySelectorAll('[data-pane]').length, folderBoxes: document.querySelectorAll('[data-folder]').length})"
+                v.evaluateJavaScript(js) { r1, e1 in
+                    sv.evaluateJavaScript(js2) { r2, e2 in
+                        print("selftest: version=\(appVersion) serverStartedByApp=\(self.server.weStarted) loginStatus=\(Login.label)")
+                        print("selftest: main=\(r1 as? String ?? "nil") error=\(e1?.localizedDescription ?? "none")")
+                        print("selftest: settings=\(r2 as? String ?? "nil") error=\(e2?.localizedDescription ?? "none")")
+                        self.server.stop()
+                        exit(e1 == nil && e2 == nil && r1 != nil && r2 != nil ? 0 : 1)
+                    }
                 }
             }
         }

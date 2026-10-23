@@ -70,6 +70,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+  <!-- Shown only if you turn a protected folder on in Settings. Photos and iCloud have no entry on purpose: Quillmeter never asks for them. -->
+  <key>NSDesktopFolderUsageDescription</key><string>Quillmeter measures the size of this folder to show what is using your disk space, because you chose it in Settings. It reads sizes only, never file contents.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>Quillmeter measures the size of this folder to show what is using your disk space, because you chose it in Settings. It reads sizes only, never file contents.</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>Quillmeter measures the size of this folder to show what is using your disk space, because you chose it in Settings. It reads sizes only, never file contents.</string>
+  <key>NSRemovableVolumesUsageDescription</key><string>Quillmeter measures the size of this folder to show what is using your disk space, because you chose it in Settings. It reads sizes only, never file contents.</string>
 </dict></plist>
 PLIST
 

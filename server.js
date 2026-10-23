@@ -7,6 +7,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { execFile } = require('node:child_process');
 const extra = require('./lib/extra');
+const scanplan = require('./lib/scanplan');
 
 const PORT = Number(process.env.PORT || 4747);
 const PUBLIC = path.join(__dirname, 'public');
@@ -136,35 +137,59 @@ async function sampleDiskIO() {
   return { read, write, totalRead: r, totalWrite: w };
 }
 
-// ---------- Disk breakdown (du scan of $HOME to depth 2; slow, so cached and niced) ----------
+// ---------- Disk breakdown ----------
+// Measures only the folders chosen in setup (see lib/scanplan.js). Until setup is done nothing is read, and the
+// Photos library, the Trash and other apps' private data are never read. Slow, so niced and cached.
 const shRaw = (cmd, args, timeout) =>
   new Promise((resolve) => execFile(cmd, args, { timeout, maxBuffer: 64 * 1024 * 1024 }, (_e, out) => resolve(out || '')));
-const diskScan = { state: 'idle', startedAt: 0, scannedAt: 0, home: [], library: [], homeBytes: 0, appsBytes: 0 };
+const EMPTY_SCAN = { scannedAt: 0, home: [], library: [], homeBytes: 0, appsBytes: 0, skipped: [], scanned: [] };
+const diskScan = { state: 'notconfigured', startedAt: 0, ...EMPTY_SCAN };
+let scanGen = 0, scanTimer = null;
+const byBytes = (x, y) => y.bytes - x.bytes;
+
 async function scanDisk() {
   if (diskScan.state === 'scanning') return;
+  if (!settings.setupDone) { diskScan.state = 'notconfigured'; return; }
+  const plan = scanplan.buildScanPlan(settings.scanFolders);
+  if (!plan.items.length) { Object.assign(diskScan, EMPTY_SCAN, { state: 'empty', skipped: plan.skipped }); return; }
+  const gen = ++scanGen;
   diskScan.state = 'scanning';
   diskScan.startedAt = Date.now();
-  const home = os.homedir();
   try {
-    const [duOut, appsOut] = await Promise.all([
-      shRaw('nice', ['-n', '19', 'du', '-xk', '-d2', home], 300000),
-      shRaw('nice', ['-n', '19', 'du', '-xsk', '/Applications'], 120000),
-    ]);
-    const rows = duOut.split('\n').map((l) => l.match(/^(\d+)\t(.+)$/)).filter(Boolean).map((m) => ({ kb: +m[1], p: m[2] }));
-    const children = (parent) => rows
-      .filter((r) => r.p !== parent && path.dirname(r.p) === parent)
-      .sort((a, b) => b.kb - a.kb).slice(0, 10)
-      .map((r) => ({ name: path.basename(r.p), path: r.p, bytes: r.kb * 1024 }));
-    diskScan.home = children(home);
-    diskScan.library = children(path.join(home, 'Library'));
-    diskScan.homeBytes = ((rows.find((r) => r.p === home) || { kb: 0 }).kb) * 1024;
-    diskScan.appsBytes = Number((appsOut.match(/^(\d+)/) || [])[1] || 0) * 1024;
-    diskScan.scannedAt = Date.now();
-    diskScan.state = 'ready';
+    const sizes = new Map(); // path -> bytes
+    await Promise.all(scanplan.duCommands(plan).map(async (c) => {
+      const out = await shRaw('nice', c.args, 300000);
+      for (const l of out.split('\n')) { const m = l.match(/^(\d+)\t(.+)$/); if (m) sizes.set(m[2], Number(m[1]) * 1024); }
+    }));
+    if (gen !== scanGen) return; // the folder choice changed while this ran; a newer scan owns the result
+    const home = [], library = [];
+    let apps = 0, libraryTotal = 0;
+    for (const it of plan.items) {
+      const bytes = sizes.get(it.path);
+      if (bytes === undefined) continue;
+      if (it.id === 'applications') apps = bytes;
+      else if (it.id === 'library') {
+        libraryTotal += bytes;
+        for (const [p, b] of sizes) if (p !== it.path && path.dirname(p) === it.path) library.push({ name: path.basename(p), parent: it.label, path: p, bytes: b });
+      } else home.push({ name: it.label, path: it.path, bytes });
+    }
+    if (libraryTotal) home.push({ name: 'Library', path: path.join(os.homedir(), 'Library'), bytes: libraryTotal });
+    home.sort(byBytes); library.sort(byBytes);
+    Object.assign(diskScan, {
+      home: home.slice(0, 12), library: library.slice(0, 10), homeBytes: home.reduce((n, x) => n + x.bytes, 0), appsBytes: apps,
+      skipped: plan.skipped, scanned: plan.items.map((i) => i.path), scannedAt: Date.now(), state: 'ready',
+    });
   } catch (e) {
     console.error('disk scan failed:', e.message);
-    diskScan.state = diskScan.scannedAt ? 'ready' : 'idle';
+    if (gen === scanGen) diskScan.state = diskScan.scannedAt ? 'ready' : 'idle';
   }
+}
+/** Re-run after the folder choice changes: drop old results first so a folder you turned off disappears at once. */
+function rescanSoon() {
+  scanGen++;
+  Object.assign(diskScan, EMPTY_SCAN, { state: settings.setupDone ? 'idle' : 'notconfigured' });
+  clearTimeout(scanTimer);
+  scanTimer = setTimeout(scanDisk, 1500);
 }
 setTimeout(scanDisk, 5000);
 setInterval(scanDisk, 6 * 3600e3);
@@ -231,8 +256,21 @@ const parseCpuTime = (s) => { // [h:]mm:ss.cc
   return m ? (+m[1] || 0) * 3600 + +m[2] * 60 + +m[3] : 0;
 };
 const fmtDur = (s) => (s >= 86400 ? `${Math.floor(s / 86400)} days` : s >= 3600 ? `${Math.floor(s / 3600)} hours` : `${Math.floor(s / 60)} min`);
+// Looking for .git inside Desktop, Documents, Downloads and friends would make macOS ask for permission, so it only
+// happens for folders enabled in setup. Anything elsewhere is fine.
+const GUARDED = { Desktop: 'desktop', Documents: 'documents', Downloads: 'downloads', Pictures: 'pictures', Movies: 'movies', Music: 'music' };
+function probeAllowed(dir) {
+  const home = os.homedir();
+  for (const [name, id] of Object.entries(GUARDED)) {
+    const root = path.join(home, name);
+    if (dir === root || dir.startsWith(root + '/')) return settings.setupDone && settings.scanFolders.includes(id);
+  }
+  if (dir.includes('/Library/Mobile Documents/')) return settings.setupDone && settings.scanFolders.includes('icloud');
+  return true;
+}
 function gitRoot(dir) {
   if (gitCache.has(dir)) return gitCache.get(dir);
+  if (!probeAllowed(dir)) { gitCache.set(dir, null); return null; }
   let d = dir, root = null;
   // Stop before $HOME: a dotfiles-style repo there would swallow every project.
   for (let i = 0; i < 12 && d && d !== '/' && d !== os.homedir(); i++, d = path.dirname(d)) {
@@ -361,13 +399,14 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 // ---------- Settings (shared by the UI, alerts and retention) ----------
 const DEFAULT_SETTINGS = {
   bits: false, cpuPerMac: false, palette: 'quillmeter', compact: false,
-  retentionDays: 7, nativeNotify: true,
+  retentionDays: 7, nativeNotify: true, setupDone: false, scanFolders: [...scanplan.DEFAULT_ON],
   tabs: { order: [], hidden: [] }, overview: { order: [], hidden: [] },
 };
 function sanitizeSettings(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
-  const s = { ...DEFAULT_SETTINGS, tabs: { order: [], hidden: [] }, overview: { order: [], hidden: [] } };
-  for (const k of ['bits', 'cpuPerMac', 'compact', 'nativeNotify']) if (typeof r[k] === 'boolean') s[k] = r[k];
+  const s = { ...DEFAULT_SETTINGS, scanFolders: [...scanplan.DEFAULT_ON], tabs: { order: [], hidden: [] }, overview: { order: [], hidden: [] } };
+  if (Array.isArray(r.scanFolders)) s.scanFolders = [...new Set(r.scanFolders.filter((id) => scanplan.IDS.includes(id)))];
+  for (const k of ['bits', 'cpuPerMac', 'compact', 'nativeNotify', 'setupDone']) if (typeof r[k] === 'boolean') s[k] = r[k];
   if (['quillmeter', 'mono', 'accessible'].includes(r.palette)) s.palette = r.palette;
   if ([7, 30, 90, 180, 365].includes(r.retentionDays)) s.retentionDays = r.retentionDays;
   const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.length < 32).slice(0, 40) : []);
@@ -634,7 +673,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST') {
       const body = await readBody(req);
       if (!body) return json(res, 400, { ok: false, error: 'invalid JSON' });
-      return json(res, 200, saveSettings({ ...settings, ...body }));
+      const before = JSON.stringify([settings.setupDone, settings.scanFolders]);
+      const next = saveSettings({ ...settings, ...body });
+      if (JSON.stringify([next.setupDone, next.scanFolders]) !== before) rescanSoon();
+      return json(res, 200, next);
     }
     return json(res, 200, settings);
   }
@@ -653,6 +695,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/projects') return json(res, 200, await sampleProjects());
   if (url.pathname === '/api/docker') return json(res, 200, await extra.sampleDocker());
   if (url.pathname === '/api/tokens') return json(res, 200, extra.tokenUsage());
+  if (url.pathname === '/api/scan-catalog') return json(res, 200, { setupDone: settings.setupDone, items: scanplan.describeCatalog(settings.scanFolders) });
   if (url.pathname === '/api/disk') return json(res, 200, diskScan);
   if (url.pathname === '/api/disk/scan' && req.method === 'POST') { scanDisk(); return json(res, 202, { ok: true }); }
   if (url.pathname === '/api/agents') return json(res, 200, await sampleAgents());

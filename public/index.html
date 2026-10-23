@@ -3,15 +3,32 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Quillmeter – Mac Activity Monitor</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand"><span class="logo"></span>Quillmeter <small id="host">connecting…</small></div>
-  <nav id="tabs"></nav>
-</header>
-<main id="view"></main>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Sections">
+    <div class="side-brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#1d2748"/><path d="M8.4 22.2A10 10 0 1 1 23.6 22.2" fill="none" stroke="#ffffff29" stroke-width="3" stroke-linecap="round"/><path d="M8.4 22.2A10 10 0 0 1 21.6 8.6" fill="none" stroke="#40c8e0" stroke-width="3" stroke-linecap="round"/><path d="M16 17.5l5-7" stroke="#fff" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="17.5" r="2.2" fill="#fff"/></svg>
+      <span>Quillmeter</span>
+    </div>
+    <nav id="tabs" aria-label="Sections"></nav>
+    <div class="side-foot" id="hostline"></div>
+  </aside>
+  <div class="content">
+    <header class="toolbar">
+      <button class="icon-btn" id="sidebarToggle" aria-label="Hide Sidebar" aria-expanded="true" title="Hide or Show Sidebar (Control-Command-S)">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M6 2.8v10.4"/></svg>
+      </button>
+      <h1 id="title">Overview</h1>
+      <div class="toolbar-actions" id="actions"></div>
+    </header>
+    <main id="view" tabindex="-1"></main>
+  </div>
+</div>
+<div id="sheet-root"></div>
 <script src="app.js"></script>
 </body>
 </html>

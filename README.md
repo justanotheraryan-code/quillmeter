@@ -20,7 +20,9 @@ Open the DMG and drag **Quillmeter** to **Applications**, or copy `dist/Quillmet
 
 ## The app
 
-- **Window and menu bar:** the dashboard opens in a native window. The menu bar item shows CPU and memory (red under strain), and its menu lists every figure and the busiest apps. Closing the window keeps Quillmeter running in the menu bar.
+- **Window and menu bar:** the dashboard opens in a native window with a sidebar (two levels, hideable with Control-Command-S). The menu bar item shows CPU and memory (red under strain), and its menu lists every figure and the busiest apps. Closing the window keeps Quillmeter running in the menu bar.
+- **Settings:** Quillmeter menu, Settings… (Command-comma) opens a Settings window with General, Folders, Display and Sidebar panes.
+- **First launch:** a short setup sheet asks which folders the disk breakdown may measure, whether to show Mac notifications, and whether to open at login. "Not Now" skips it and measures nothing.
 - **Launch at login:** a toggle in the app menu, the menu bar menu, and Settings. From a terminal: `/Applications/Quillmeter.app/Contents/MacOS/Quillmeter --login on|off|status`. It works once the app is in `/Applications`.
 - **Its own server:** the app starts the bundled server on port 4747 and stops it when you quit. If a Quillmeter server is already running there, the app attaches to it instead. If the app crashes, the server exits by itself within seconds.
 - **Port:** set `QUILLMETER_PORT` to use a different port.
@@ -30,7 +32,7 @@ Open the DMG and drag **Quillmeter** to **Applications**, or copy `dist/Quillmet
 
 - **Apps:** helpers are added to the app that launched them. Quit (SIGTERM) or Force quit (SIGKILL) an app or a single process, always after a confirm prompt. Finder, WindowServer, Dock, loginwindow and Quillmeter itself are protected.
 - **CPU, Memory:** live figures with the apps behind them.
-- **Disk:** free space, live read and write rates, and a storage breakdown of your home folder and Library (a `du` scan, cached and refreshed every 6 hours).
+- **Disk:** free space, live read and write rates, and a storage breakdown of the folders you chose in setup (a `du` scan, cached and refreshed every 6 hours).
 - **Network:** live rates and the apps using the network right now.
 - **GPU:** utilization, renderer and tiler load, and GPU memory. Per-app GPU use needs root, so only the total is shown.
 - **Battery:** charge, health and condition as macOS reports them, cycle count, live power draw and thermal state.
@@ -39,8 +41,20 @@ Open the DMG and drag **Quillmeter** to **Applications**, or copy `dist/Quillmet
 - **Projects:** dev servers grouped by git repo, with idle detection.
 - **Docker:** running containers with CPU, memory, network and ports, read through the `docker` CLI (Docker Desktop, OrbStack, Colima or Homebrew).
 - **Agents:** running coding agents (Claude Code, Codex, Cursor Agent, Gemini CLI, OpenCode, Aider) with everything they started, plus today's Claude Code token counts from its local session logs (counts only, never message text).
-- **Settings:** bytes or bits, CPU per core or per Mac, chart colors (Quillmeter, monochrome, accessible), compact layout, history retention, notifications, launch at login. Show, hide and reorder tabs and Overview cards.
-- **Export image:** a 1200 x 630 share card of memory, CPU and top apps, in light or dark, saved to Downloads.
+- **Settings:** the folders to measure, bytes or bits, CPU per core or per Mac, chart colors (Quillmeter, monochrome, accessible), compact layout, history retention, notifications, open at login. Show, hide and reorder sidebar sections and Overview cards.
+- **Export image:** a 1200 x 630 share card of memory, CPU and top apps in your current appearance. A save panel lets you choose where it goes.
+
+## Permissions
+
+Quillmeter asks macOS for nothing at launch, and nothing is measured until you finish setup.
+
+- **No prompts by default.** The recommended folders (Applications, app data and caches in Library, hidden developer folders, folders you made in your home folder) need no permission.
+- **Folders macOS guards start switched off.** Downloads, Documents, Desktop, Pictures, Movies, Music and iCloud Drive are listed as "macOS will ask first". If you turn one on, macOS asks once, with a plain explanation of why.
+- **Never read:** your Photos library, the Trash, and other apps' private data in Library (Mail, Messages, Safari, Containers and similar). They are skipped even when the folder around them is enabled. Quillmeter has no Photos permission entry at all.
+- **Sizes only.** It measures how much space a folder uses and never opens file contents.
+- **Change it any time** in Settings, Folders. Turning a folder off removes its results at once.
+
+Finding a dev server's git repository would also touch a protected folder, so that only happens for folders you enabled.
 
 ## Command line
 
@@ -99,6 +113,7 @@ The last form signs with the hardened runtime and the entitlements Node needs (`
 | --- | --- |
 | `server.js` | HTTP server, samplers, history, alerts, settings |
 | `lib/extra.js` | GPU, battery detail, Docker and token-usage samplers |
+| `lib/scanplan.js` | Which folders the disk breakdown may read, and what it must never read |
 | `public/` | The dashboard (plain HTML, CSS and JavaScript, no build step) |
 | `app/` | The macOS app: Swift host (`main.swift`), icon generator, build script, entitlements |
 | `bin/` | `quillmeter` command line tool and the MCP server |
@@ -108,4 +123,4 @@ Data lives in `~/.quillmeter` (history, hourly rollups, alerts, settings and log
 
 ## Not built
 
-Notarized builds and auto-update (they need a Developer ID certificate), CPU and battery temperatures and fans (they need a root helper), per-app GPU use, Neural Engine, Bluetooth batteries, per-app volume, AI plan limits (they need your account credentials), Codex token counts, and native Swift collectors (the server is still Node). The Docker tab was tested against a stub CLI, not a real Docker install, and launch-at-login was verified as registered but not through an actual log out and in.
+A native-looking settings toolbar built from AppKit controls (the interface is still a web page inside the app), notarized builds and auto-update (they need a Developer ID certificate), CPU and battery temperatures and fans (they need a root helper), per-app GPU use, Neural Engine, Bluetooth batteries, per-app volume, AI plan limits (they need your account credentials), Codex token counts, and native Swift collectors (the server is still Node). The Docker tab was tested against a stub CLI, not a real Docker install, and launch-at-login was verified as registered but not through an actual log out and in.
