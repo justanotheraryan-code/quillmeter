@@ -1,6 +1,7 @@
 // Quillmeter.app: the host for the Quillmeter dashboard.
 //  - starts the bundled Node server (or attaches to one that is already running on the port) and stops it on quit
 //  - shows the dashboard in a native window, plus a menu bar item whose figures you choose (menubar.swift)
+//  - a Sound tab: output and input devices, volume, and per-app volume through Core Audio taps (sound.swift)
 //  - an optional clipboard history menu in the menu bar, off until turned on in Settings (clipboard.swift)
 //  - launch at login through SMAppService
 // A Settings window (Command-,) shows the same dashboard in settings mode. Export Image uses a save panel, so no
@@ -207,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     let clipMenu = NSMenu()
     let clips = ClipboardStore()
     var clipsOn = false
+    let sound = SoundManager()
     let appMenu = NSMenu()
     var snap: Snap?
     var window: NSWindow?
@@ -222,6 +224,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if selfTest { runSelfTest(); return }
         setupStatusItem()
         applyClipboardPrefs()
+        sound.onState = { [weak self] json in
+            for v in [self?.web, self?.settingsWeb] { v?.evaluateJavaScript("window.onSoundState && window.onSoundState(\(json))", completionHandler: nil) }
+        }
         server.start { err in
             if let err = err { self.alert("Quillmeter could not start", err); return }
             self.serverReady = true
@@ -232,7 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if !args.contains("--background") && !launchedAsLoginItem() { showWindow() }
     }
 
-    func applicationWillTerminate(_ n: Notification) { server.stop() }
+    func applicationWillTerminate(_ n: Notification) { sound.resetAll(); server.stop() }
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows flag: Bool) -> Bool { if !flag { showWindow() }; return true }
 
@@ -325,6 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if let on = body["launchAtLogin"] as? Bool { setLogin(on) }
         if body["openSettings"] as? Bool == true { showSettings(pane: body["pane"] as? String) }
         if let p = body["setPref"] as? [String: Any], let k = p["key"] as? String { setPref(k, p["value"]) }
+        if let m = body["sound"] as? [String: Any] { sound.handle(m) }
         if body["clearClipboard"] as? Bool == true { clips.clear(); pushNativeState() }
         if let data = body["saveImage"] as? String { saveImage(dataURL: data, name: (body["name"] as? String) ?? "quillmeter.png") }
     }

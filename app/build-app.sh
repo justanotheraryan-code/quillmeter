@@ -21,8 +21,8 @@ rm -rf "$APP" "$OUT/.build"; mkdir -p "$APP/Contents/MacOS" "$RES/server" "$OUT/
 
 echo "1/6 compiling the host app ($ARCHS)"
 for a in $ARCHS; do
-  swiftc -O -swift-version 5 -target "$a-apple-macos13.0" -framework AppKit -framework WebKit -framework ServiceManagement \
-    "$HERE/main.swift" "$HERE/menubar.swift" "$HERE/clipboard.swift" -o "$OUT/.build/Quillmeter-$a"
+  swiftc -O -swift-version 5 -target "$a-apple-macos13.0" -framework AppKit -framework WebKit -framework ServiceManagement -framework CoreAudio -framework AudioToolbox \
+    "$HERE/main.swift" "$HERE/menubar.swift" "$HERE/clipboard.swift" "$HERE/sound.swift" -o "$OUT/.build/Quillmeter-$a"
 done
 set -- $ARCHS
 if [ $# -eq 1 ]; then cp "$OUT/.build/Quillmeter-$1" "$APP/Contents/MacOS/Quillmeter"
@@ -78,6 +78,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <!-- Shown only if you turn a protected folder on in Settings. Photos and iCloud have no entry on purpose: Quillmeter never asks for them. -->
+  <key>NSAudioCaptureUsageDescription</key><string>Quillmeter captures one app’s audio only to play it again at the volume you set in the Sound tab. Nothing is recorded or saved.</string>
   <key>NSDesktopFolderUsageDescription</key><string>Quillmeter measures the size of this folder to show what is using your disk space, because you chose it in Settings. It reads sizes only, never file contents.</string>
   <key>NSDocumentsFolderUsageDescription</key><string>Quillmeter measures the size of this folder to show what is using your disk space, because you chose it in Settings. It reads sizes only, never file contents.</string>
   <key>NSDownloadsFolderUsageDescription</key><string>Quillmeter measures the size of this folder to show what is using your disk space, because you chose it in Settings. It reads sizes only, never file contents.</string>

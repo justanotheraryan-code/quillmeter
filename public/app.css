@@ -322,3 +322,8 @@ body.reduce-transparency .scrim { -webkit-backdrop-filter: none; backdrop-filter
 /* ---------- Manage ---------- */
 td.chk { width: 36px; padding-right: 0; }
 .joblog { font: 11px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow-y: auto; background: color-mix(in srgb, var(--ink) 5%, var(--panel)); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+
+/* Sound: a slider with its value, inside a settings row */
+.vol { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.vol input[type=range] { width: min(320px, 60vw); accent-color: var(--blue); }
+.vol .pct { min-width: 4ch; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }

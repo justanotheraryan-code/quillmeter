@@ -8,7 +8,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 // Sidebar: two levels at most (a group title, then sections), as the macOS guidelines ask.
 const GROUPS = [
   { name: null, tabs: ['Overview'] },
-  { name: 'System', tabs: ['CPU', 'Memory', 'Disk', 'Network', 'GPU', 'Battery'] },
+  { name: 'System', tabs: ['CPU', 'Memory', 'Disk', 'Network', 'GPU', 'Battery', 'Sound'] },
   { name: 'Processes', tabs: ['Apps', 'Projects', 'Docker', 'Agents'] },
   { name: 'Manage', tabs: ['Cleaner', 'Uninstaller', 'Homebrew', 'Updates'] },
   { name: 'Over Time', tabs: ['History', 'Alerts'] },
@@ -30,6 +30,7 @@ const ICONS = {
   Network: '<circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="2.6" ry="6"/><path d="M2 8h12"/>',
   GPU: '<rect x="2" y="3" width="12" height="8" rx="1.5"/><circle cx="8" cy="7" r="2"/><path d="M5 13.2h6"/>',
   Battery: '<rect x="1.5" y="4.5" width="11" height="7" rx="1.6"/><path d="M14.2 7v2"/><rect x="3.5" y="6.5" width="5" height="3" rx=".6" fill="currentColor" stroke="none"/>',
+  Sound: '<path d="M2.5 6.2h2.4L8 3.4v9.2L4.9 9.8H2.5z"/><path d="M10.4 5.8a3.4 3.4 0 0 1 0 4.4M12.2 4a6 6 0 0 1 0 8"/>',
   Apps: '<rect x="3" y="6" width="10" height="7" rx="1.6"/><path d="M5 3.4h6"/>',
   Projects: '<path d="M2 4.6h4l1.5 1.6H14v6.4H2z"/>',
   Docker: '<path d="M8 2l5 2.5v5L8 12 3 9.5v-5z"/><path d="M3 4.5l5 2.5 5-2.5M8 7v5"/>',
@@ -464,6 +465,7 @@ function renderTabs() {
 function actionsFor() {
   if (SETTINGS_MODE || tab === 'Settings') return '';
   if (typeof manageActions === 'function') { const m = manageActions(tab); if (m !== null) return m; }
+  if (tab === 'Sound') return native ? '<button class="btn" data-snd="reset">Reset Apps to 100%</button>' : '';
   if (tab === 'Projects') return '<input class="search" id="pq" type="search" placeholder="Port or name" aria-label="Find a port or process">';
   if (tab === 'Overview') return '<button class="btn" data-export>Export Image…</button>';
   if (tab === 'Apps') return '<input class="search" id="q" type="search" placeholder="Filter" aria-label="Filter apps">';
@@ -478,7 +480,7 @@ function actionsFor() {
 
 // ---------- Rendering ----------
 // These views change only when a button is pressed, so a poll must not rebuild them (it would drop ticks and focus).
-const MANUAL = new Set(['Settings', 'Cleaner', 'Uninstaller', 'Homebrew', 'Updates']);
+const MANUAL = new Set(['Settings', 'Cleaner', 'Uninstaller', 'Homebrew', 'Updates', 'Sound']);
 const viewKey = () => (tab === 'Settings' ? `v|Settings|${pane}` : MANUAL.has(tab) ? `v|${tab}` : tab);
 function render(force = false) {
   if (SETTINGS_MODE) {
@@ -494,6 +496,7 @@ function render(force = false) {
   if (MANUAL.has(tab) && renderedKey === viewKey() && !force) return;
   $('#hostline').innerHTML = `<div>${esc(snap.host.name.replace(/\.local$/, ''))}</div><div>${esc(snap.host.model)} · up ${dur(snap.host.uptime)}</div>`;
   $('#title').textContent = tab;
+  if (typeof soundWatch === 'function') soundWatch(tab === 'Sound');
   renderTabs();
   const actions = actionsFor();
   if (actions !== lastActions) { $('#actions').innerHTML = actions; lastActions = actions; const q = $('#q'); if (q) q.value = filter; const pq = $('#pq'); if (pq) pq.value = portFilter; if (typeof manageToolbarSync === 'function') manageToolbarSync(); }
