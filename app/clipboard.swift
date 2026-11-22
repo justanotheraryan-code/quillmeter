@@ -1,13 +1,20 @@
 // Clipboard history for Quillmeter. Off until the person turns it on in Settings.
 //
-// What it keeps: plain text only (no images, files or rich content), at most `limit` clips, each at most 100,000
-// characters. What it skips: anything an app marks as concealed, transient or auto-generated (password managers
-// use these markers), and text made only of whitespace. History lives in memory; it is written to disk
-// (Application Support, owner-only permissions) only if "Keep after quitting" is on.
+// Always kept: plain text, at most `limit` clips, each at most 100,000 characters.
+// Kept only if the person turns it on: images (up to 4 MB each, the newest 10) and copied files (their paths only, never
+// the contents). What is skipped: anything an app marks as concealed, transient or auto-generated (password managers use
+// these markers), and text made only of whitespace. History lives in memory; only text is ever written to disk, and only
+// when "Keep after quitting" is on (Application Support, owner-only permissions).
+// Optional: copied web links can have tracking parameters (utm_*, fbclid, gclid and similar) removed.
 import AppKit
 
 struct Clip: Codable, Equatable {
-    var text: String
+    enum Kind: String, Codable { case text, image, files }
+    var kind: Kind = .text
+    var text: String = ""            // text clips: the text
+    var image: Data? = nil           // image clips: PNG data (memory only)
+    var width: Int = 0, height: Int = 0
+    var paths: [String] = []         // file clips: the paths (memory only)
     var date: Date
 }
 
@@ -18,11 +25,16 @@ final class ClipboardStore {
         "com.nspasteboard.ConcealedType",
     ]
     static let maxChars = 100_000
+    static let maxImageBytes = 4_000_000
+    static let maxImages = 10
 
     private(set) var clips: [Clip] = []
     var limit = 25 { didSet { trim(); save() } }
     var expireHours = 0 { didSet { prune(); save() } }          // 0 = never
     var persist = false { didSet { if persist { save() } else { try? FileManager.default.removeItem(at: file) } } }
+    var keepImages = false { didSet { if !keepImages { clips.removeAll { $0.kind == .image } } } }
+    var keepFiles = false { didSet { if !keepFiles { clips.removeAll { $0.kind == .files } } } }
+    var cleanLinks = false
     var paused = false
 
     private var timer: Timer?
@@ -58,29 +70,72 @@ final class ClipboardStore {
         guard !paused else { return }
         let types = Set((pb.types ?? []).map { $0.rawValue })
         if !types.isDisjoint(with: Self.skipTypes) { return }
-        guard let text = pb.string(forType: .string), text.count <= Self.maxChars,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        add(text)
+
+        // Files first (Finder puts a file URL next to the file's name as text), then text, then images.
+        if types.contains("public.file-url") {
+            // Copied files: record their paths only if asked to; otherwise don't record the file name as text either.
+            guard keepFiles, let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty else { return }
+            addFiles(urls.map { $0.path }); return
+        }
+        if let text = pb.string(forType: .string) {
+            guard text.count <= Self.maxChars, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            if cleanLinks, let cleaned = Self.cleanURL(text), cleaned != text.trimmingCharacters(in: .whitespacesAndNewlines) {
+                pb.clearContents(); pb.setString(cleaned, forType: .string)
+                lastChange = pb.changeCount                // our own write is not a new clip
+                add(cleaned); return
+            }
+            add(text); return
+        }
+        if keepImages, let img = Self.pngData(from: pb) { addImage(img) }
+    }
+
+    /// PNG bytes of an image on the pasteboard, or nil if there is none or it is too large.
+    static func pngData(from pb: NSPasteboard) -> (data: Data, w: Int, h: Int)? {
+        var png = pb.data(forType: .png)
+        if png == nil, let tiff = pb.data(forType: .tiff), let rep = NSBitmapImageRep(data: tiff) { png = rep.representation(using: .png, properties: [:]) }
+        guard let data = png, data.count <= maxImageBytes, let rep = NSBitmapImageRep(data: data) else { return nil }
+        return (data, rep.pixelsWide, rep.pixelsHigh)
     }
 
     // MARK: Changing the list
 
     func add(_ text: String) {
-        clips.removeAll { $0.text == text }
-        clips.insert(Clip(text: text, date: Date()), at: 0)
+        clips.removeAll { $0.kind == .text && $0.text == text }
+        clips.insert(Clip(kind: .text, text: text, date: Date()), at: 0)
         trim(); save()
     }
+    func addFiles(_ paths: [String]) {
+        clips.removeAll { $0.kind == .files && $0.paths == paths }
+        clips.insert(Clip(kind: .files, paths: paths, date: Date()), at: 0)
+        trim()
+    }
+    func addImage(_ img: (data: Data, w: Int, h: Int)) {
+        clips.removeAll { $0.kind == .image && $0.image == img.data }
+        clips.insert(Clip(kind: .image, image: img.data, width: img.w, height: img.h, date: Date()), at: 0)
+        // Images are big: keep only the newest few, whatever the clip limit is.
+        var seen = 0
+        clips.removeAll { if $0.kind == .image { seen += 1; return seen > Self.maxImages }; return false }
+        trim()
+    }
 
-    /// Put a clip back on the clipboard (as plain text) and move it to the top of the list.
+    /// Put a clip back on the clipboard and move it to the top of the list.
     func copyBack(_ index: Int) {
         guard clips.indices.contains(index) else { return }
-        let text = clips[index].text
+        let c = clips[index]
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(text, forType: .string)
+        switch c.kind {
+        case .text: pb.setString(c.text, forType: .string)
+        case .image: if let d = c.image, let img = NSImage(data: d) { pb.writeObjects([img]) }
+        case .files:
+            let urls = c.paths.filter { FileManager.default.fileExists(atPath: $0) }.map { URL(fileURLWithPath: $0) as NSURL }
+            if urls.isEmpty { clips.remove(at: index); return }          // the files are gone
+            pb.writeObjects(urls)
+        }
         lastChange = pb.changeCount            // our own write is not a new clip
-        clips.remove(at: index)
-        clips.insert(Clip(text: text, date: Date()), at: 0)
+        var moved = clips.remove(at: index)
+        moved.date = Date()
+        clips.insert(moved, at: 0)
         save()
     }
 
@@ -94,20 +149,20 @@ final class ClipboardStore {
         clips.removeAll { $0.date < cutoff }
     }
 
-    // MARK: Disk (only when "Keep after quitting" is on)
+    // MARK: Disk (text only, and only when "Keep after quitting" is on)
 
     private func save() {
         guard persist, timer != nil else { return }
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try JSONEncoder().encode(clips).write(to: file, options: .atomic)
+            try JSONEncoder().encode(clips.filter { $0.kind == .text }).write(to: file, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         } catch { /* history stays in memory */ }
     }
 
     private func load() {
         guard let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode([Clip].self, from: data) else { return }
-        clips = Array(saved.prefix(limit))
+        clips = Array(saved.filter { $0.kind == .text }.prefix(limit))
         prune()
     }
 
@@ -117,5 +172,38 @@ final class ClipboardStore {
     static func title(_ text: String, max: Int = 50) -> String {
         let flat = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         return flat.count > max ? String(flat.prefix(max)).trimmingCharacters(in: .whitespaces) + "\u{2026}" : flat
+    }
+    static func title(for c: Clip) -> String {
+        switch c.kind {
+        case .text: return title(c.text)
+        case .image: return "Image  \(c.width) \u{00D7} \(c.height)"
+        case .files:
+            let names = c.paths.map { ($0 as NSString).lastPathComponent }
+            return names.count == 1 ? title(names[0]) : "\(title(names[0], max: 36)) and \(names.count - 1) more"
+        }
+    }
+
+    // MARK: Clean links
+
+    private static let trackingExact: Set<String> = ["fbclid", "gclid", "dclid", "gbraid", "wbraid", "msclkid", "yclid", "twclid", "ttclid", "li_fat_id",
+        "mc_cid", "mc_eid", "igshid", "igsh", "_hsenc", "_hsmi", "__hssc", "__hstc", "__hsfp", "hsctatracking", "vero_id", "ref_src", "ref_url", "spm", "oly_enc_id", "oly_anon_id"]
+    private static let shareIDHosts: Set<String> = ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "open.spotify.com"]
+
+    /// The link without tracking parameters, or nil if the text is not a single web link or nothing needed removing.
+    static func cleanURL(_ text: String) -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.contains(where: { $0.isWhitespace }), var c = URLComponents(string: t), let scheme = c.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", c.host != nil, let items = c.queryItems, !items.isEmpty else { return nil }
+        let host = (c.host ?? "").lowercased()
+        let kept = items.filter { q in
+            let n = q.name.lowercased()
+            if n.hasPrefix("utm_") || trackingExact.contains(n) { return false }
+            if n == "si", shareIDHosts.contains(host) { return false }
+            if n == "feature", q.value == "share", shareIDHosts.contains(host) { return false }
+            return true
+        }
+        guard kept.count != items.count else { return nil }
+        c.queryItems = kept.isEmpty ? nil : kept
+        return c.string
     }
 }

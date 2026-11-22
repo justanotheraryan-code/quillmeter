@@ -318,7 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let d: [String: Any] = [
             "available": true, "launchAtLogin": Login.enabled, "status": Login.label,
             "menubar": ["metrics": Prefs.metrics, "icon": Prefs.showIcon, "choices": Prefs.allMetrics.map { ["id": $0, "name": Prefs.metricNames[$0] ?? $0] }],
-            "clipboard": ["enabled": Prefs.clipEnabled, "limit": Prefs.clipLimit, "persist": Prefs.clipPersist, "expire": Prefs.clipExpire, "count": clips.clips.count],
+            "clipboard": ["enabled": Prefs.clipEnabled, "limit": Prefs.clipLimit, "persist": Prefs.clipPersist, "images": Prefs.clipImages, "files": Prefs.clipFiles, "clean": Prefs.clipClean, "expire": Prefs.clipExpire, "count": clips.clips.count],
         ]
         let data = (try? JSONSerialization.data(withJSONObject: d)) ?? Data("{}".utf8)
         return String(data: data, encoding: .utf8) ?? "{}"
@@ -517,6 +517,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         case "mb.icon": if let b = value as? Bool { Prefs.showIcon = b; refreshTitle() }
         case "cb.enabled": if let b = value as? Bool { Prefs.clipEnabled = b; applyClipboardPrefs() }
         case "cb.limit": if let n = value as? Int, [10, 25, 50, 100].contains(n) { Prefs.clipLimit = n; applyClipboardPrefs() }
+        case "cb.images": if let b = value as? Bool { Prefs.clipImages = b; applyClipboardPrefs() }
+        case "cb.files": if let b = value as? Bool { Prefs.clipFiles = b; applyClipboardPrefs() }
+        case "cb.clean": if let b = value as? Bool { Prefs.clipClean = b; applyClipboardPrefs() }
         case "cb.persist": if let b = value as? Bool { Prefs.clipPersist = b; applyClipboardPrefs() }
         case "cb.expire": if let n = value as? Int, [0, 1, 24, 168].contains(n) { Prefs.clipExpire = n; applyClipboardPrefs() }
         default: break
@@ -531,6 +534,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         clips.limit = Prefs.clipLimit
         clips.expireHours = Prefs.clipExpire
         clips.persist = Prefs.clipPersist
+        clips.keepImages = Prefs.clipImages
+        clips.keepFiles = Prefs.clipFiles
+        clips.cleanLinks = Prefs.clipClean
         if Prefs.clipEnabled {
             if clipItem == nil {
                 let it = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -563,17 +569,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         for (i, c) in clips.clips.prefix(10).enumerated() {
             // The first nine are Command-1 to Command-9, the tenth Command-0 (the shortcuts work while the menu is open).
-            let mi = NSMenuItem(title: ClipboardStore.title(c.text), action: #selector(pickClip(_:)), keyEquivalent: i < 9 ? String(i + 1) : "0")
+            let mi = NSMenuItem(title: ClipboardStore.title(for: c), action: #selector(pickClip(_:)), keyEquivalent: i < 9 ? String(i + 1) : "0")
             mi.target = self; mi.tag = i
-            mi.toolTip = String(c.text.prefix(400))
+            decorate(mi, c)
             menu.addItem(mi)
         }
         if clips.clips.count > 10 {
             let more = NSMenuItem(title: "Older clips", action: nil, keyEquivalent: "")
             let sub = NSMenu()
             for (i, c) in clips.clips.enumerated().dropFirst(10) {
-                let mi = NSMenuItem(title: ClipboardStore.title(c.text), action: #selector(pickClip(_:)), keyEquivalent: "")
-                mi.target = self; mi.tag = i; mi.toolTip = String(c.text.prefix(400)); sub.addItem(mi)
+                let mi = NSMenuItem(title: ClipboardStore.title(for: c), action: #selector(pickClip(_:)), keyEquivalent: "")
+                mi.target = self; mi.tag = i; decorate(mi, c); sub.addItem(mi)
             }
             more.submenu = sub; menu.addItem(more)
         }
@@ -585,6 +591,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(.separator())
         let prefs = NSMenuItem(title: "Preferences\u{2026}", action: #selector(openClipboardPrefs), keyEquivalent: ","); prefs.target = self; menu.addItem(prefs)
         menu.addItem(NSMenuItem(title: "Quit Quillmeter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+    }
+
+    /// Tooltip and, for images and files, a small picture beside the title.
+    func decorate(_ mi: NSMenuItem, _ c: Clip) {
+        switch c.kind {
+        case .text: mi.toolTip = String(c.text.prefix(400))
+        case .image:
+            if let d = c.image, let img = NSImage(data: d), img.size.height > 0 {
+                let h: CGFloat = 20, w = min(img.size.width / img.size.height * h, 48)
+                img.size = NSSize(width: w, height: h); mi.image = img
+            }
+        case .files:
+            mi.toolTip = c.paths.prefix(10).joined(separator: "\n")
+            if let p = c.paths.first { let ic = NSWorkspace.shared.icon(forFile: p); ic.size = NSSize(width: 16, height: 16); mi.image = ic }
+        }
     }
 
     @objc func pickClip(_ sender: NSMenuItem) { clips.copyBack(sender.tag); pushNativeState() }

@@ -397,8 +397,11 @@ function menubarPane() {
 function clipboardPane() {
   if (!native || !native.clipboard) return appOnly('Clipboard history');
   const c = native.clipboard;
-  return `<p class="pane-lead">Keeps the text you copy so you can pick an earlier clip from a menu in the menu bar. It is off until you turn it on, and it keeps plain text only. Anything a password manager marks as secret is skipped.</p>
+  return `<p class="pane-lead">Keeps the text you copy so you can pick an earlier clip from a menu in the menu bar. It is off until you turn it on, and it keeps plain text unless you also turn on images or files. Anything a password manager marks as secret is skipped.</p>
     <div class="card">${setRow('Clipboard History', 'Adds a clipboard icon to the menu bar. macOS may ask whether Quillmeter can read what other apps copy.', prefSel('cb.enabled', c.enabled, [[false, 'Off'], [true, 'On']]))}
+      ${setRow('Images', 'Also keep copied images (up to 4 MB each, the newest 10). Images stay in memory and are never saved to disk.', prefSel('cb.images', c.images, [[false, 'Off'], [true, 'On']]))}
+      ${setRow('Files', 'Also keep copied files from Finder. Only their locations are kept, not their contents, and never saved to disk.', prefSel('cb.files', c.files, [[false, 'Off'], [true, 'On']]))}
+      ${setRow('Clean Links', 'Remove tracking parts (utm_, fbclid, gclid and similar) from a web link when you copy it. This changes what is on your clipboard.', prefSel('cb.clean', c.clean, [[false, 'Off'], [true, 'On']]))}
       ${setRow('Clips Kept', 'The oldest clips are dropped first.', prefSel('cb.limit', c.limit, [[10, '10'], [25, '25'], [50, '50'], [100, '100']]))}
       ${setRow('Remove Clips After', 'Clips older than this are removed.', prefSel('cb.expire', c.expire, [[0, 'Never'], [1, '1 hour'], [24, '1 day'], [168, '1 week']]))}
       ${setRow('Keep After Quitting', 'Off keeps clips in memory only, so quitting forgets them. On saves them in a file only you can read.', prefSel('cb.persist', c.persist, [[false, 'Off'], [true, 'On']]))}</div>
