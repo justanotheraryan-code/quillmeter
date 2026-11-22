@@ -2,6 +2,7 @@
 //  - starts the bundled Node server (or attaches to one that is already running on the port) and stops it on quit
 //  - shows the dashboard in a native window, plus a menu bar item whose figures you choose (menubar.swift)
 //  - a Sound tab: output and input devices, volume, and per-app volume through Core Audio taps (sound.swift)
+//  - an optional shelf window for holding files and text while you move them (shelf.swift)
 //  - an optional clipboard history menu in the menu bar, off until turned on in Settings (clipboard.swift)
 //  - launch at login through SMAppService
 // A Settings window (Command-,) shows the same dashboard in settings mode. Export Image uses a save panel, so no
@@ -209,6 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     let clips = ClipboardStore()
     var clipsOn = false
     let sound = SoundManager()
+    let shelf = ShelfController()
     let appMenu = NSMenu()
     var snap: Snap?
     var window: NSWindow?
@@ -318,7 +320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let d: [String: Any] = [
             "available": true, "launchAtLogin": Login.enabled, "status": Login.label,
             "menubar": ["metrics": Prefs.metrics, "icon": Prefs.showIcon, "choices": Prefs.allMetrics.map { ["id": $0, "name": Prefs.metricNames[$0] ?? $0] }],
-            "clipboard": ["enabled": Prefs.clipEnabled, "limit": Prefs.clipLimit, "persist": Prefs.clipPersist, "images": Prefs.clipImages, "files": Prefs.clipFiles, "clean": Prefs.clipClean, "expire": Prefs.clipExpire, "count": clips.clips.count],
+            "clipboard": ["enabled": Prefs.clipEnabled, "limit": Prefs.clipLimit, "shelf": Prefs.shelfEnabled, "persist": Prefs.clipPersist, "images": Prefs.clipImages, "files": Prefs.clipFiles, "clean": Prefs.clipClean, "expire": Prefs.clipExpire, "count": clips.clips.count],
         ]
         let data = (try? JSONSerialization.data(withJSONObject: d)) ?? Data("{}".utf8)
         return String(data: data, encoding: .utf8) ?? "{}"
@@ -506,8 +508,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         login.state = Login.enabled ? .on : .off
         menu.addItem(login)
         menu.addItem(.separator())
+        if Prefs.shelfEnabled { let sh = NSMenuItem(title: "Show Shelf", action: #selector(showShelf), keyEquivalent: ""); sh.target = self; menu.addItem(sh); menu.addItem(.separator()) }
         let quit = NSMenuItem(title: "Quit Quillmeter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); menu.addItem(quit)
     }
+    @objc func showShelf() { shelf.show() }
 
     // MARK: Preferences from the Settings page
 
@@ -520,6 +524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         case "cb.images": if let b = value as? Bool { Prefs.clipImages = b; applyClipboardPrefs() }
         case "cb.files": if let b = value as? Bool { Prefs.clipFiles = b; applyClipboardPrefs() }
         case "cb.clean": if let b = value as? Bool { Prefs.clipClean = b; applyClipboardPrefs() }
+        case "sh.enabled": if let b = value as? Bool { Prefs.shelfEnabled = b; if b { shelf.show() } else { shelf.shutDown() } }
         case "cb.persist": if let b = value as? Bool { Prefs.clipPersist = b; applyClipboardPrefs() }
         case "cb.expire": if let n = value as? Int, [0, 1, 24, 168].contains(n) { Prefs.clipExpire = n; applyClipboardPrefs() }
         default: break
@@ -589,6 +594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let del = NSMenuItem(title: "Delete All History\u{2026}", action: #selector(deleteHistory), keyEquivalent: ""); del.target = self
         del.isEnabled = !clips.clips.isEmpty; menu.addItem(del)
         menu.addItem(.separator())
+        if Prefs.shelfEnabled { let sh = NSMenuItem(title: "Show Shelf", action: #selector(showShelf), keyEquivalent: ""); sh.target = self; menu.addItem(sh) }
         let prefs = NSMenuItem(title: "Preferences\u{2026}", action: #selector(openClipboardPrefs), keyEquivalent: ","); prefs.target = self; menu.addItem(prefs)
         menu.addItem(NSMenuItem(title: "Quit Quillmeter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
@@ -649,6 +655,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                                     print("selftest: version=\(appVersion) serverStartedByApp=\(self.server.weStarted) loginStatus=\(Login.label)")
                                     print("selftest: main=\(r1 as? String ?? "nil") error=\(e1?.localizedDescription ?? "none")")
                                     print("selftest: settings=\(r2 as? String ?? "nil") error=\(e2?.localizedDescription ?? "none")")
+                                    let tmp = NSTemporaryDirectory() + "qm-shelf-selftest.txt"; FileManager.default.createFile(atPath: tmp, contents: Data("x".utf8))
+                                    self.shelf.show(); self.shelf.model.addFiles([tmp]); self.shelf.model.addText("hello shelf"); self.shelf.model.addFiles([tmp])
+                                    let rows = self.shelf.rowCount, titles = self.shelf.model.items.map { $0.title }
+                                    self.shelf.model.remove(self.shelf.model.items[0].id)
+                                    let after = self.shelf.rowCount; self.shelf.shutDown(); try? FileManager.default.removeItem(atPath: tmp)
+                                    print("selftest: shelf rows=\(rows) titles=\(titles) afterRemove=\(after) afterShutdown=\(self.shelf.rowCount) open=\(self.shelf.isOpen)")
                                     print("selftest: glass=\(r3 as? String ?? "nil") error=\(e3?.localizedDescription ?? "none")")
                                     self.server.stop()
                                     exit(e1 == nil && e2 == nil && e3 == nil && r1 != nil && r2 != nil && r3 != nil ? 0 : 1)

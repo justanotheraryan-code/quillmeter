@@ -22,7 +22,7 @@ rm -rf "$APP" "$OUT/.build"; mkdir -p "$APP/Contents/MacOS" "$RES/server" "$OUT/
 echo "1/6 compiling the host app ($ARCHS)"
 for a in $ARCHS; do
   swiftc -O -swift-version 5 -target "$a-apple-macos13.0" -framework AppKit -framework WebKit -framework ServiceManagement -framework CoreAudio -framework AudioToolbox \
-    "$HERE/main.swift" "$HERE/menubar.swift" "$HERE/clipboard.swift" "$HERE/sound.swift" -o "$OUT/.build/Quillmeter-$a"
+    "$HERE/main.swift" "$HERE/menubar.swift" "$HERE/clipboard.swift" "$HERE/sound.swift" "$HERE/shelf.swift" -o "$OUT/.build/Quillmeter-$a"
 done
 set -- $ARCHS
 if [ $# -eq 1 ]; then cp "$OUT/.build/Quillmeter-$1" "$APP/Contents/MacOS/Quillmeter"

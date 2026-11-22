@@ -21,6 +21,7 @@ enum Prefs {
     static var clipImages: Bool { get { d.bool(forKey: "cb.images") } set { d.set(newValue, forKey: "cb.images") } }
     static var clipFiles: Bool { get { d.bool(forKey: "cb.files") } set { d.set(newValue, forKey: "cb.files") } }
     static var clipClean: Bool { get { d.bool(forKey: "cb.clean") } set { d.set(newValue, forKey: "cb.clean") } }
+    static var shelfEnabled: Bool { get { d.bool(forKey: "sh.enabled") } set { d.set(newValue, forKey: "sh.enabled") } }
     static var clipPersist: Bool { get { d.bool(forKey: "cb.persist") } set { d.set(newValue, forKey: "cb.persist") } }
     static var clipExpire: Int { get { let v = d.integer(forKey: "cb.expire"); return [0, 1, 24, 168].contains(v) ? v : 0 } set { d.set(newValue, forKey: "cb.expire") } }
 }
