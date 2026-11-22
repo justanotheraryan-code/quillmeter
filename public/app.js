@@ -10,6 +10,7 @@ const GROUPS = [
   { name: null, tabs: ['Overview'] },
   { name: 'System', tabs: ['CPU', 'Memory', 'Disk', 'Network', 'GPU', 'Battery'] },
   { name: 'Processes', tabs: ['Apps', 'Projects', 'Docker', 'Agents'] },
+  { name: 'Manage', tabs: ['Cleaner', 'Uninstaller', 'Homebrew', 'Updates'] },
   { name: 'Over Time', tabs: ['History', 'Alerts'] },
 ];
 const TABS = [...GROUPS.flatMap((g) => g.tabs), 'Settings'];
@@ -35,6 +36,10 @@ const ICONS = {
   Agents: '<path d="M8 2.2l1.4 3.4 3.4 1.4-3.4 1.4L8 11.8 6.6 8.4 3.2 7l3.4-1.4z"/><path d="M12.5 11.5v2.5M11.2 12.8h2.6"/>',
   History: '<circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.4 1.5"/>',
   Alerts: '<path d="M4 11V7.4a4 4 0 0 1 8 0V11l1 1H3z"/><path d="M6.6 13.6a1.5 1.5 0 0 0 2.8 0"/>',
+  Cleaner: '<path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M7 7v4M9 7v4"/>',
+  Uninstaller: '<rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="M6 6l4 4M10 6l-4 4"/>',
+  Homebrew: '<path d="M3.5 5h7v5a3 3 0 0 1-3 3h-1a3 3 0 0 1-3-3z"/><path d="M10.5 6.2h1.2a1.8 1.8 0 0 1 0 3.6h-1.2M6 2.5v1.2M8.5 2.5v1.2"/>',
+  Updates: '<circle cx="8" cy="8" r="6"/><path d="M8 4.8v5M5.8 8.3L8 10.5l2.2-2.2"/>',
   Settings: '<circle cx="8" cy="8" r="2.2"/><circle cx="8" cy="8" r="5.4" stroke-dasharray="2.3 2.3"/>',
 };
 const icon = (name) => `<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
@@ -53,6 +58,7 @@ let notice = '', renderedKey = null, lastActions = null, sheetFolders = null, sh
 const notified = new Set();
 const open = new Set();
 let firstPoll = true;
+let portFilter = '';
 
 // Set by Quillmeter.app (see app/main.swift); null when the page is opened in an ordinary browser.
 let native = window.quillmeterNative || null;
@@ -338,18 +344,20 @@ const views = {
     return `<div class="card pad"><table><tbody>${rows}</tbody></table></div>`;
   },
   Projects() {
-    const dev = projects.filter((p) => p.dev), sys = projects.filter((p) => !p.dev);
+    const hit = (p) => !portFilter || p.ports.join(' ').includes(portFilter) || p.command.toLowerCase().includes(portFilter) || String(p.project).toLowerCase().includes(portFilter);
+    const dev = projects.filter((p) => p.dev && hit(p)), sys = projects.filter((p) => !p.dev && hit(p));
+    const stopCell = (p) => (p.self ? '<span class="pill">This app</span>' : p.stoppable ? `<button class="act" data-stop="${p.pid}" data-name="${esc(p.project || p.command)}">Stop…</button> <button class="act" data-stop="${p.pid}" data-name="${esc(p.project || p.command)}" data-force="1">Force…</button>` : `<span class="pill">${p.system ? 'macOS' : 'Other user'}</span>`);
     const idle = dev.filter((p) => p.status === 'idle').length;
     const byProject = new Map();
     for (const p of dev) byProject.set(p.project, [...(byProject.get(p.project) || []), p]);
     const pill = (p) => `<span class="pill ${p.status === 'idle' ? 'warn' : p.status === 'working' ? 'ok' : ''}">${esc(p.note)}</span>`;
-    const row = (p) => `<tr><td>${p.ports.map((x) => `<span class="pill ok">:${x}</span>`).join(' ')}</td><td>${esc(p.command)} ${pill(p)}</td><td class="num">${cpuFmt(p.cpu)}</td><td class="num">${bytes(p.mem)}</td><td class="num">${p.self ? '<span class="pill">This app</span>' : `<button class="act" data-stop="${p.pid}" data-name="${esc(p.project)}">Stop…</button>`}</td></tr>`;
+    const row = (p) => `<tr><td>${p.ports.map((x) => `<span class="pill ok">:${x}</span>`).join(' ')}</td><td>${esc(p.command)} ${pill(p)}</td><td class="num">${cpuFmt(p.cpu)}</td><td class="num">${bytes(p.mem)}</td><td class="num">${stopCell(p)}</td></tr>`;
     const groups = [...byProject].map(([name, ps]) => `<div class="card pad" style="margin-bottom:16px"><h3>${esc(name)} · ${ps.length} server${ps.length > 1 ? 's' : ''}</h3><div class="hint" style="margin:0 0 8px">${esc(ps[0].repo || ps[0].cwd)}</div><table><tbody>${ps.map(row).join('')}</tbody></table></div>`).join('');
-    const sysRows = sys.map((p) => `<tr><td>${p.ports.map((x) => `:${x}`).join(' ')}</td><td>${esc(p.command)}</td><td class="num">${cpuFmt(p.cpu)}</td><td class="num">${bytes(p.mem)}</td></tr>`).join('');
+    const sysRows = sys.map((p) => `<tr><td>${p.ports.map((x) => `:${x}`).join(' ')}</td><td>${esc(p.command)}</td><td class="num">${cpuFmt(p.cpu)}</td><td class="num">${bytes(p.mem)}</td><td class="num">${stopCell(p)}</td></tr>`).join('');
     return `<p class="hint" style="margin-top:0">${dev.length} dev server${dev.length === 1 ? '' : 's'}${dev.length ? ` · ${idle} idle` : ''}. Grouped by git repository.</p>
       ${groups || '<div class="card empty"><h3>No Dev Servers Found</h3><p>Servers listening on a port from a folder inside your home folder show up here.</p></div>'}
-      ${sys.length ? `<button class="btn" data-sys>${showSys ? 'Hide' : 'Show'} ${sys.length} System Listeners</button>${showSys ? `<div class="card pad" style="margin-top:12px"><table><tbody>${sysRows}</tbody></table></div>` : ''}` : ''}
-      <p class="hint">Stop sends a polite SIGTERM after you confirm. Idle means no CPU use for 30 minutes while Quillmeter was watching, or days of uptime with almost no CPU time.</p>`;
+      ${sys.length ? `<button class="btn" data-sys>${showSys ? 'Hide' : 'Show'} ${sys.length} Other Listener${sys.length === 1 ? '' : 's'}</button>${showSys ? `<div class="card pad" style="margin-top:12px"><table><tbody>${sysRows}</tbody></table></div>` : ''}` : ''}
+      <p class="hint">Any process you own that listens on a port can be stopped, except macOS services and Quillmeter itself. Stop sends a polite SIGTERM after you confirm; Force ends it immediately (SIGKILL). Idle means no CPU use for 30 minutes while Quillmeter was watching, or days of uptime with almost no CPU time.</p>`;
   },
   Agents() {
     if (!agents.length) return tokenCard() + '<div class="card empty"><h3>No Coding Agents Running</h3><p>Quillmeter looks for Claude Code, Codex, Cursor Agent, Gemini CLI, OpenCode and Aider.</p></div>';
@@ -431,6 +439,8 @@ function renderTabs() {
 // ---------- Toolbar ----------
 function actionsFor() {
   if (SETTINGS_MODE || tab === 'Settings') return '';
+  if (typeof manageActions === 'function') { const m = manageActions(tab); if (m !== null) return m; }
+  if (tab === 'Projects') return '<input class="search" id="pq" type="search" placeholder="Port or name" aria-label="Find a port or process">';
   if (tab === 'Overview') return '<button class="btn" data-export>Export Image…</button>';
   if (tab === 'Apps') return '<input class="search" id="q" type="search" placeholder="Filter" aria-label="Filter apps">';
   if (tab === 'Disk') { const st = diskData ? diskData.state : 'idle'; return st === 'ready' || st === 'scanning' ? `<button class="btn" data-scan ${st === 'scanning' ? 'disabled' : ''}>Measure Again</button>` : ''; }
@@ -443,6 +453,9 @@ function actionsFor() {
 }
 
 // ---------- Rendering ----------
+// These views change only when a button is pressed, so a poll must not rebuild them (it would drop ticks and focus).
+const MANUAL = new Set(['Settings', 'Cleaner', 'Uninstaller', 'Homebrew', 'Updates']);
+const viewKey = () => (tab === 'Settings' ? `v|Settings|${pane}` : MANUAL.has(tab) ? `v|${tab}` : tab);
 function render(force = false) {
   if (SETTINGS_MODE) {
     const key = `s|${pane}`;
@@ -454,14 +467,14 @@ function render(force = false) {
   }
   if (!snap || !snap.cpu) return;
   // A form that is open must not be rebuilt on every poll (it would close dropdowns and drop focus).
-  if (tab === 'Settings' && renderedKey === `v|Settings|${pane}` && !force) return;
+  if (MANUAL.has(tab) && renderedKey === viewKey() && !force) return;
   $('#hostline').innerHTML = `<div>${esc(snap.host.name.replace(/\.local$/, ''))}</div><div>${esc(snap.host.model)} · up ${dur(snap.host.uptime)}</div>`;
   $('#title').textContent = tab;
   renderTabs();
   const actions = actionsFor();
-  if (actions !== lastActions) { $('#actions').innerHTML = actions; lastActions = actions; const q = $('#q'); if (q) q.value = filter; }
+  if (actions !== lastActions) { $('#actions').innerHTML = actions; lastActions = actions; const q = $('#q'); if (q) q.value = filter; const pq = $('#pq'); if (pq) pq.value = portFilter; if (typeof manageToolbarSync === 'function') manageToolbarSync(); }
   $('#view').innerHTML = (notice ? `<div class="banner warn" role="status">${esc(notice)}</div>` : '') + views[tab]();
-  renderedKey = tab === 'Settings' ? `v|Settings|${pane}` : tab;
+  renderedKey = viewKey();
 }
 function say(msg) { notice = msg; render(true); setTimeout(() => { notice = ''; render(true); }, 7000); }
 
@@ -559,6 +572,7 @@ document.addEventListener('change', async (e) => {
 
 document.addEventListener('input', (e) => {
   if (e.target.id === 'q') { filter = e.target.value.toLowerCase(); render(); }
+  if (e.target.id === 'pq') { portFilter = e.target.value.trim().toLowerCase(); render(); }
 });
 
 document.addEventListener('click', async (e) => {
@@ -604,8 +618,11 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-scan]')) { await post('/api/disk/scan'); await pollDisk(); render(true); return; }
   if (e.target.closest('[data-sys]')) { showSys = !showSys; render(); return; }
   const stop = e.target.closest('[data-stop]');
-  if (stop && confirm(`Stop ${stop.dataset.name} (pid ${stop.dataset.stop})?`)) {
-    await post(`/api/stop?pid=${stop.dataset.stop}`);
+  if (stop) {
+    const force = !!stop.dataset.force;
+    if (!confirm(force ? `Force stop ${stop.dataset.name} (pid ${stop.dataset.stop})? It ends immediately and unsaved work is lost.` : `Stop ${stop.dataset.name} (pid ${stop.dataset.stop})?`)) return;
+    const r = await (await post(`/api/stop?pid=${stop.dataset.stop}${force ? '&force=1' : ''}`)).json();
+    if (!r.ok) say(r.error || 'Couldn\u2019t stop it.');
     await poll();
   }
 });

@@ -43,6 +43,13 @@ chmod 755 "$RES/node"
 echo "3/6 copying the server and dashboard"
 cp -R "$ROOT/server.js" "$ROOT/lib" "$ROOT/public" "$ROOT/bin" "$ROOT/package.json" "$RES/server/"
 
+# The Trash helper: moves paths to the Trash through NSFileManager, which Node can't call. The server validates paths first.
+for a in $ARCHS; do
+  swiftc -O -target "$a-apple-macos13.0" "$HERE/qm-trash.swift" -o "$OUT/.build/qm-trash-$a"
+done
+if [ $# -eq 1 ]; then cp "$OUT/.build/qm-trash-$1" "$RES/qm-trash"; else lipo -create "$OUT/.build"/qm-trash-* -output "$RES/qm-trash"; fi
+chmod 755 "$RES/qm-trash"
+
 echo "4/6 drawing the icon"
 swiftc -O -framework AppKit "$HERE/make-icon.swift" -o "$OUT/.build/make-icon" 2>/dev/null
 "$OUT/.build/make-icon" "$OUT/.build/icon-1024.png"
@@ -81,6 +88,7 @@ PLIST
 echo "5/6 signing ($([ "$IDENTITY" = "-" ] && echo ad-hoc || echo "$IDENTITY"))"
 if [ "$IDENTITY" = "-" ]; then FLAGS=""; else FLAGS="--options runtime --timestamp --entitlements $HERE/entitlements.plist"; fi
 codesign --force --sign "$IDENTITY" $FLAGS "$RES/node"
+codesign --force --sign "$IDENTITY" $FLAGS "$RES/qm-trash"
 codesign --force --sign "$IDENTITY" $FLAGS "$APP"
 codesign --verify --strict "$APP" && echo "   signature verifies"
 

@@ -42,6 +42,11 @@ Open the DMG and drag **Quillmeter** to **Applications**, or copy `dist/Quillmet
 - **Projects:** dev servers grouped by git repo, with idle detection.
 - **Docker:** running containers with CPU, memory, network and ports, read through the `docker` CLI (Docker Desktop, OrbStack, Colima or Homebrew).
 - **Agents:** running coding agents (Claude Code, Codex, Cursor Agent, Gemini CLI, OpenCode, Aider) with everything they started, plus today's Claude Code token counts from its local session logs (counts only, never message text).
+- **Ports (in Projects):** every listening port with its process. Stop or Force stop your own processes after a confirm prompt; system and other users' listeners are shown but can't be stopped. Search by port or name.
+- **Cleaner:** scans caches, logs and developer caches (Xcode DerivedData, npm, bun) in the folders you enabled in setup. Skips Apple's caches, symlinks and anything under 1 MB. You tick what to remove; items move to the Trash, never deleted outright.
+- **Uninstaller:** lists apps, finds leftovers (preferences, support files, login items). Exact bundle-id matches are pre-ticked, name matches are not. Running, Apple and Quillmeter apps are refused. Everything goes to the Trash.
+- **Homebrew:** installed formulae and casks, outdated list, search, and install, upgrade or uninstall as one job at a time with a live log. Package names are validated.
+- **Updates:** outdated Homebrew packages. Checking developer update feeds (Sparkle) is opt-in, https only, and never contacts private hosts.
 - **Settings:** the folders to measure, bytes or bits, CPU per core or per Mac, chart colors (Quillmeter, monochrome, accessible), compact layout, history retention, notifications, open at login. Show, hide and reorder sidebar sections and Overview cards.
 - **Export image:** a 1200 x 630 share card of memory, CPU and top apps in your current appearance. A save panel lets you choose where it goes.
 
@@ -125,10 +130,13 @@ Data lives in `~/.quillmeter` (history, hourly rollups, alerts, settings and log
 
 ## Credits
 
+The Manage tools (ports, cleaner, uninstaller) were inspired by the feature list of [vorssaint-utils](https://github.com/vorssaint/vorssaint-utils). Quillmeter reimplements them from scratch; no code from that GPL project is copied.
+
+
 The cursor-reactive glass behavior adapts ideas from [liquid-glass-react](https://github.com/rdev/liquid-glass-react) (MIT). The package itself isn't used, because it needs React and a bundler; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 On Chromium browsers (for example, if you choose Open in Browser) the glass also bends what is behind it using an SVG displacement filter. The app's own web view is WebKit, where that bending isn't shown, so it uses blur, saturation, the cursor-following light and the elastic motion.
 
 ## Not built
 
-A native-looking settings toolbar built from AppKit controls (the interface is still a web page inside the app), notarized builds and auto-update (they need a Developer ID certificate), CPU and battery temperatures and fans (they need a root helper), per-app GPU use, Neural Engine, Bluetooth batteries, per-app volume, AI plan limits (they need your account credentials), Codex token counts, and native Swift collectors (the server is still Node). The Docker tab was tested against a stub CLI, not a real Docker install, and launch-at-login was verified as registered but not through an actual log out and in.
+Messaging-app download cleanup (needs access to protected app containers), clipboard history, and per-app volume (planned). A native-looking settings toolbar built from AppKit controls (the interface is still a web page inside the app), notarized builds and auto-update (they need a Developer ID certificate), CPU and battery temperatures and fans (they need a root helper), per-app GPU use, Neural Engine, Bluetooth batteries, per-app volume, AI plan limits (they need your account credentials), Codex token counts, and native Swift collectors (the server is still Node). The Docker tab was tested against a stub CLI, not a real Docker install, and launch-at-login was verified as registered but not through an actual log out and in.

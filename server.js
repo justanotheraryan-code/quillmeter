@@ -8,6 +8,7 @@ const os = require('node:os');
 const { execFile } = require('node:child_process');
 const extra = require('./lib/extra');
 const scanplan = require('./lib/scanplan');
+const manage = require('./lib/manage');
 
 const PORT = Number(process.env.PORT || 4747);
 const PUBLIC = path.join(__dirname, 'public');
@@ -299,7 +300,9 @@ async function sampleProjects() {
     [...entries.values()].map(async (e) => {
       const cwdOut = await sh('lsof', ['-a', '-p', String(e.pid), '-d', 'cwd', '-Fn'], 3000);
       const cwd = (cwdOut.match(/\nn(.+)/) || [])[1] || '';
-      const stat = (await sh('ps', ['-o', 'etime=,time=,pcpu=,rss=', '-p', String(e.pid)])).trim().split(/\s+/);
+      const stat = (await sh('ps', ['-o', 'etime=,time=,pcpu=,rss=,uid=,comm=', '-p', String(e.pid)])).trim().split(/\s+/);
+      const comm = stat.slice(5).join(' '), mine = Number(stat[4]) === process.getuid();
+      const system = /^\/(System|usr\/libexec|usr\/sbin|usr\/bin|sbin|bin)\//.test(comm);
       const up = parseEtime(stat[0] || ''), cpuSecs = parseCpuTime(stat[1] || '');
       const cpu = Number(stat[2] || 0);
       const seen = pidSeen.get(e.pid) || { first: now, lastActive: now };
@@ -324,6 +327,10 @@ async function sampleProjects() {
         repo: root,
         dev,
         self: e.pid === process.pid,
+        mine,
+        system,
+        // Only processes you own, that aren't macOS services, Quillmeter itself or a protected app, can be stopped here.
+        stoppable: mine && !system && e.pid !== process.pid && !PROTECTED.has(e.command),
         project: dev ? path.basename(root || cwd) : e.command,
         uptime: stat[0] || '',
         cpu,
@@ -699,14 +706,21 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/disk') return json(res, 200, diskScan);
   if (url.pathname === '/api/disk/scan' && req.method === 'POST') { scanDisk(); return json(res, 202, { ok: true }); }
   if (url.pathname === '/api/agents') return json(res, 200, await sampleAgents());
+  if (url.pathname.startsWith('/api/manage/')) {
+    const body = req.method === 'POST' ? await readBody(req) : {};
+    if (body === null) return json(res, 400, { ok: false, error: 'invalid JSON' });
+    const r = await manage.handle(req.method, url, body, { settings: () => settings });
+    if (r) return json(res, r.code || 200, r.body);
+  }
   if (url.pathname === '/api/stop' && req.method === 'POST') {
-    // Only stops a PID that currently owns a listening port; asks politely (SIGTERM).
+    // Only stops a process that currently listens on a port and that you own; asks politely (SIGTERM), or SIGKILL with force=1.
     const pid = Number(url.searchParams.get('pid'));
     const owners = await sampleProjects();
     const target = owners.find((p) => p.pid === pid);
-    if (!target || !target.dev) return json(res, 400, { ok: false, error: 'pid is not a listening dev server' });
+    if (!target) return json(res, 400, { ok: false, error: 'That process is no longer listening on a port.' });
     if (target.self) return json(res, 400, { ok: false, error: 'refusing to stop Quillmeter itself' });
-    try { process.kill(pid, 'SIGTERM'); portsCache.t = 0; return json(res, 200, { ok: true }); }
+    if (!target.stoppable) return json(res, 400, { ok: false, error: target.system ? `${target.command} is part of macOS.` : !target.mine ? `${target.command} belongs to another user.` : `${target.command} is protected.` });
+    try { process.kill(pid, url.searchParams.get('force') === '1' ? 'SIGKILL' : 'SIGTERM'); portsCache.t = 0; return json(res, 200, { ok: true }); }
     catch (e) { return json(res, 500, { ok: false, error: e.message }); }
   }
   const file = path.join(PUBLIC, url.pathname === '/' ? 'index.html' : url.pathname);
