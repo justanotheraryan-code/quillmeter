@@ -170,7 +170,7 @@ body.glass-ready .seg button.on, body.glass-ready .panes button.on { background:
 
 /* ---------- Settings ---------- */
 .panes { position: relative; display: flex; gap: 2px; padding: 2px; background: color-mix(in srgb, var(--ink) 9%, transparent); border-radius: 999px; width: fit-content; max-width: 100%; overflow-x: auto; margin: 0 auto 20px !important; }
-.panes button { position: relative; z-index: 1; border: 0; background: transparent; color: var(--muted); padding: 4px 16px; min-height: 28px; border-radius: 999px; cursor: pointer; font-weight: 500; }
+.panes button { position: relative; z-index: 1; border: 0; background: transparent; color: var(--muted); padding: 4px 12px; min-height: 28px; border-radius: 999px; cursor: pointer; font-weight: 500; }
 .panes button:hover { color: var(--ink); }
 .panes button.on { background: var(--panel); color: var(--ink); font-weight: 600; }
 .pane-lead { color: var(--muted); margin: 0 0 14px; }

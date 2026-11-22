@@ -1,6 +1,7 @@
 // Quillmeter.app: the host for the Quillmeter dashboard.
 //  - starts the bundled Node server (or attaches to one that is already running on the port) and stops it on quit
-//  - shows the dashboard in a native window, plus a menu bar item with CPU and memory
+//  - shows the dashboard in a native window, plus a menu bar item whose figures you choose (menubar.swift)
+//  - an optional clipboard history menu in the menu bar, off until turned on in Settings (clipboard.swift)
 //  - launch at login through SMAppService
 // A Settings window (Command-,) shows the same dashboard in settings mode. Export Image uses a save panel, so no
 // folder permission is needed. Flags: --background (no window at launch), --login on|off|status, --print, --selftest.
@@ -202,6 +203,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     let selfTest = args.contains("--selftest")
     var item: NSStatusItem?
     let statusMenu = NSMenu()
+    var clipItem: NSStatusItem?
+    let clipMenu = NSMenu()
+    let clips = ClipboardStore()
+    var clipsOn = false
     let appMenu = NSMenu()
     var snap: Snap?
     var window: NSWindow?
@@ -216,6 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         buildMainMenu()
         if selfTest { runSelfTest(); return }
         setupStatusItem()
+        applyClipboardPrefs()
         server.start { err in
             if let err = err { self.alert("Quillmeter could not start", err); return }
             self.serverReady = true
@@ -304,7 +310,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     // MARK: Native bridge
 
     func nativeStateJSON() -> String {
-        let d: [String: Any] = ["available": true, "launchAtLogin": Login.enabled, "status": Login.label]
+        let d: [String: Any] = [
+            "available": true, "launchAtLogin": Login.enabled, "status": Login.label,
+            "menubar": ["metrics": Prefs.metrics, "icon": Prefs.showIcon, "choices": Prefs.allMetrics.map { ["id": $0, "name": Prefs.metricNames[$0] ?? $0] }],
+            "clipboard": ["enabled": Prefs.clipEnabled, "limit": Prefs.clipLimit, "persist": Prefs.clipPersist, "expire": Prefs.clipExpire, "count": clips.clips.count],
+        ]
         let data = (try? JSONSerialization.data(withJSONObject: d)) ?? Data("{}".utf8)
         return String(data: data, encoding: .utf8) ?? "{}"
     }
@@ -314,6 +324,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         guard let body = m.body as? [String: Any] else { return }
         if let on = body["launchAtLogin"] as? Bool { setLogin(on) }
         if body["openSettings"] as? Bool == true { showSettings(pane: body["pane"] as? String) }
+        if let p = body["setPref"] as? [String: Any], let k = p["key"] as? String { setPref(k, p["value"]) }
+        if body["clearClipboard"] as? Bool == true { clips.clear(); pushNativeState() }
         if let data = body["saveImage"] as? String { saveImage(dataURL: data, name: (body["name"] as? String) ?? "quillmeter.png") }
     }
 
@@ -414,21 +426,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc func reloadPage() { if let w = web { load(w, base) } }
     @objc func toggleSidebar() { web?.evaluateJavaScript("window.toggleSidebar && window.toggleSidebar()", completionHandler: nil) }
 
+    // MARK: Menu bar item
+
     func setupStatusItem() {
         let it = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         it.menu = statusMenu
         statusMenu.delegate = self
         item = it
-        setTitle("Quillmeter…", hot: false)
+        refreshTitle()
         tick()
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.tick() }
     }
 
-    func setTitle(_ text: String, hot: Bool) {
-        item?.button?.attributedTitle = NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
-            .foregroundColor: hot ? NSColor.systemRed : NSColor.labelColor,
-        ])
+    /// Redraw the menu bar item from the latest figures and the person's choices in Settings.
+    func refreshTitle() {
+        guard let button = item?.button else { return }
+        let chosen = Prefs.metrics
+        let icon = NSImage(systemSymbolName: "gauge.with.needle", accessibilityDescription: "Quillmeter")
+        icon?.isTemplate = true
+        // The icon is shown when asked for, and always when there is nothing else to show.
+        let showIcon = Prefs.showIcon || chosen.isEmpty || snap == nil
+        button.image = showIcon ? icon : nil
+        button.imagePosition = chosen.isEmpty || snap == nil ? .imageOnly : .imageLeft
+        guard let s = snap else { button.attributedTitle = NSAttributedString(string: ""); button.toolTip = "Quillmeter"; return }
+        let m = metrics(from: s)
+        let (title, _) = menuBarTitle(m, chosen: chosen)
+        button.attributedTitle = title
+        button.toolTip = "Quillmeter  ·  " + Prefs.allMetrics.compactMap { m[$0].map { "\($0.name) \($0.compact)" } }.joined(separator: "  ·  ")
     }
 
     func tick() {
@@ -437,7 +461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.snap = s
-                if let s = s { let d = describe(s); self.setTitle(d.title, hot: d.hot) } else { self.setTitle("Quillmeter: offline", hot: false) }
+                self.refreshTitle()
             }
         }
     }
@@ -447,23 +471,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             appMenu.items.first { $0.action == #selector(toggleLogin) }?.state = Login.enabled ? .on : .off
             return
         }
+        if menu === clipMenu { buildClipMenu(); return }
         menu.removeAllItems()
         func label(_ text: String, bold: Bool = false) {
             let m = NSMenuItem(title: text, action: nil, keyEquivalent: "")
             m.isEnabled = false
             m.attributedTitle = NSAttributedString(string: text, attributes: [
-                .font: bold ? NSFont.boldSystemFont(ofSize: 12) : NSFont.menuFont(ofSize: 13),
+                .font: bold ? NSFont.systemFont(ofSize: 11, weight: .semibold) : NSFont.menuFont(ofSize: 13),
                 .foregroundColor: bold ? NSColor.secondaryLabelColor : NSColor.labelColor,
             ])
             menu.addItem(m)
         }
         if let s = snap {
-            let d = describe(s)
-            d.lines.forEach { label($0) }
+            let m = metrics(from: s)
+            for id in ["cpu", "memory", "disk", "network", "gpu", "battery"] {
+                guard let row = m[id] else { continue }
+                let mi = NSMenuItem(); mi.view = MetricRowView(row); menu.addItem(mi)
+            }
             menu.addItem(.separator())
             label("Busiest right now", bold: true)
-            d.busiest.forEach { label($0) }
-        } else { label("Starting…") }
+            describe(s).busiest.forEach { label($0) }
+        } else { label("Starting\u{2026}") }
         menu.addItem(.separator())
         let open = NSMenuItem(title: "Open Quillmeter", action: #selector(openWindow), keyEquivalent: "o"); open.target = self; menu.addItem(open)
         let prefs = NSMenuItem(title: "Settings\u{2026}", action: #selector(openSettingsMenu), keyEquivalent: ","); prefs.target = self; menu.addItem(prefs)
@@ -473,6 +501,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(login)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Quillmeter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); menu.addItem(quit)
+    }
+
+    // MARK: Preferences from the Settings page
+
+    func setPref(_ key: String, _ value: Any?) {
+        switch key {
+        case "mb.metrics": if let a = value as? [String] { Prefs.metrics = a; refreshTitle() }
+        case "mb.icon": if let b = value as? Bool { Prefs.showIcon = b; refreshTitle() }
+        case "cb.enabled": if let b = value as? Bool { Prefs.clipEnabled = b; applyClipboardPrefs() }
+        case "cb.limit": if let n = value as? Int, [10, 25, 50, 100].contains(n) { Prefs.clipLimit = n; applyClipboardPrefs() }
+        case "cb.persist": if let b = value as? Bool { Prefs.clipPersist = b; applyClipboardPrefs() }
+        case "cb.expire": if let n = value as? Int, [0, 1, 24, 168].contains(n) { Prefs.clipExpire = n; applyClipboardPrefs() }
+        default: break
+        }
+        pushNativeState()
+    }
+
+    // MARK: Clipboard history menu
+
+    /// Make the clipboard menu bar item and the watcher match the preferences. Nothing is read while it is off.
+    func applyClipboardPrefs() {
+        clips.limit = Prefs.clipLimit
+        clips.expireHours = Prefs.clipExpire
+        clips.persist = Prefs.clipPersist
+        if Prefs.clipEnabled {
+            if clipItem == nil {
+                let it = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+                let img = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "Clipboard history")
+                img?.isTemplate = true
+                it.button?.image = img
+                it.button?.toolTip = "Quillmeter clipboard history"
+                it.menu = clipMenu
+                clipMenu.delegate = self
+                clipItem = it
+            }
+            clips.start(); clipsOn = true
+        } else {
+            if clipsOn { clips.stop(); clipsOn = false }
+            if let it = clipItem { NSStatusBar.system.removeStatusItem(it); clipItem = nil }
+        }
+    }
+
+    func buildClipMenu() {
+        clips.prune()
+        let menu = clipMenu
+        menu.removeAllItems()
+        let head = NSMenuItem(title: "Select the clip you want to add to your clipboard", action: nil, keyEquivalent: "")
+        head.isEnabled = false
+        head.attributedTitle = NSAttributedString(string: head.title, attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+        menu.addItem(head)
+        menu.addItem(.separator())
+        if clips.clips.isEmpty {
+            let none = NSMenuItem(title: clips.paused ? "Recording is paused" : "Nothing copied yet", action: nil, keyEquivalent: ""); none.isEnabled = false; menu.addItem(none)
+        }
+        for (i, c) in clips.clips.prefix(10).enumerated() {
+            // The first nine are Command-1 to Command-9, the tenth Command-0 (the shortcuts work while the menu is open).
+            let mi = NSMenuItem(title: ClipboardStore.title(c.text), action: #selector(pickClip(_:)), keyEquivalent: i < 9 ? String(i + 1) : "0")
+            mi.target = self; mi.tag = i
+            mi.toolTip = String(c.text.prefix(400))
+            menu.addItem(mi)
+        }
+        if clips.clips.count > 10 {
+            let more = NSMenuItem(title: "Older clips", action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            for (i, c) in clips.clips.enumerated().dropFirst(10) {
+                let mi = NSMenuItem(title: ClipboardStore.title(c.text), action: #selector(pickClip(_:)), keyEquivalent: "")
+                mi.target = self; mi.tag = i; mi.toolTip = String(c.text.prefix(400)); sub.addItem(mi)
+            }
+            more.submenu = sub; menu.addItem(more)
+        }
+        menu.addItem(.separator())
+        let pause = NSMenuItem(title: "Pause Recording", action: #selector(togglePause), keyEquivalent: ""); pause.target = self
+        pause.state = clips.paused ? .on : .off; menu.addItem(pause)
+        let del = NSMenuItem(title: "Delete All History\u{2026}", action: #selector(deleteHistory), keyEquivalent: ""); del.target = self
+        del.isEnabled = !clips.clips.isEmpty; menu.addItem(del)
+        menu.addItem(.separator())
+        let prefs = NSMenuItem(title: "Preferences\u{2026}", action: #selector(openClipboardPrefs), keyEquivalent: ","); prefs.target = self; menu.addItem(prefs)
+        menu.addItem(NSMenuItem(title: "Quit Quillmeter", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+    }
+
+    @objc func pickClip(_ sender: NSMenuItem) { clips.copyBack(sender.tag); pushNativeState() }
+    @objc func togglePause() { clips.paused.toggle() }
+    @objc func openClipboardPrefs() { showSettings(pane: "clipboard") }
+    @objc func deleteHistory() {
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert()
+        a.messageText = "Delete all clipboard history?"
+        a.informativeText = "This removes \(clips.clips.count) saved clips from Quillmeter. It can\u{2019}t be undone. What is on your clipboard right now stays there."
+        a.addButton(withTitle: "Delete All"); a.addButton(withTitle: "Cancel")
+        a.buttons.first?.hasDestructiveAction = true
+        if a.runModal() == .alertFirstButtonReturn { clips.clear(); pushNativeState() }
     }
     @objc func openWindow() { showWindow() }
     @objc func openBrowser() { NSWorkspace.shared.open(base) }

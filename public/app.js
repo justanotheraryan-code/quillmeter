@@ -15,7 +15,7 @@ const GROUPS = [
 ];
 const TABS = [...GROUPS.flatMap((g) => g.tabs), 'Settings'];
 const OVERVIEW_CARDS = [['cpu', 'CPU'], ['memory', 'Memory'], ['disk', 'Disk'], ['network', 'Network'], ['gpu', 'GPU'], ['battery', 'Battery'], ['apps', 'Top Apps']];
-const PANES = [['general', 'General'], ['folders', 'Folders'], ['display', 'Display'], ['sidebar', 'Sidebar']];
+const PANES = [['general', 'General'], ['menubar', 'Menu Bar'], ['clipboard', 'Clipboard'], ['folders', 'Folders'], ['display', 'Display'], ['sidebar', 'Sidebar']];
 
 // One color means one thing. Orange and red are reserved for warnings, so no metric uses them.
 const C = { cpu: 'var(--blue)', mem: 'var(--purple)', disk: 'var(--brown)', net: 'var(--indigo)', gpu: 'var(--teal)', bat: 'var(--green)' };
@@ -381,7 +381,31 @@ function arrangeList(group, title, items, cfg) {
   const rows = order.map((id, i) => `<div class="setrow slim"><label><input type="checkbox" data-arrange="${group}" data-id="${id}" data-act="toggle" ${(cfg.hidden || []).includes(id) ? '' : 'checked'}> ${esc(labels[id])}</label><span><button class="act" data-arrange="${group}" data-id="${id}" data-act="up" aria-label="Move ${esc(labels[id])} up" ${i === 0 ? 'disabled' : ''}>↑</button> <button class="act" data-arrange="${group}" data-id="${id}" data-act="down" aria-label="Move ${esc(labels[id])} down" ${i === order.length - 1 ? 'disabled' : ''}>↓</button></span></div>`).join('');
   return `<div class="card"><h3>${title}</h3>${rows}</div>`;
 }
+// A select whose value is kept by the Mac app (menu bar and clipboard preferences), not by the server.
+const prefSel = (key, cur, opts) => `<select data-pref="${key}" aria-label="${esc(key)}">${opts.map(([v, l]) => `<option value="${v}" ${String(v) === String(cur) ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+const appOnly = (what) => `<div class="card"><p style="margin:0">${what} belongs to the Quillmeter app. Open Settings from the app to change it.</p></div>`;
+function menubarPane() {
+  if (!native || !native.menubar) return appOnly('The menu bar item');
+  const mb = native.menubar;
+  const rows = mb.choices.map((c) => `<div class="setrow slim"><label><input type="checkbox" data-metric="${c.id}" ${mb.metrics.includes(c.id) ? 'checked' : ''}> ${esc(c.name)}</label></div>`).join('');
+  return `<p class="pane-lead">Choose the figures shown in the menu bar. Each one turns red when it needs attention. The menu itself always lists every figure with the busiest apps.</p>
+    <div class="card"><h3>Shown in the menu bar</h3>${rows}</div>
+    <div class="card">${setRow('Icon', 'Show the Quillmeter icon before the figures. It always shows when no figure is chosen.', prefSel('mb.icon', mb.icon, [[true, 'Show'], [false, 'Hide']]))}</div>
+    <p class="hint">Wider choices take more room in the menu bar. On a crowded menu bar macOS may hide an item that doesn't fit.</p>`;
+}
+function clipboardPane() {
+  if (!native || !native.clipboard) return appOnly('Clipboard history');
+  const c = native.clipboard;
+  return `<p class="pane-lead">Keeps the text you copy so you can pick an earlier clip from a menu in the menu bar. It is off until you turn it on, and it keeps plain text only. Anything a password manager marks as secret is skipped.</p>
+    <div class="card">${setRow('Clipboard History', 'Adds a clipboard icon to the menu bar. macOS may ask whether Quillmeter can read what other apps copy.', prefSel('cb.enabled', c.enabled, [[false, 'Off'], [true, 'On']]))}
+      ${setRow('Clips Kept', 'The oldest clips are dropped first.', prefSel('cb.limit', c.limit, [[10, '10'], [25, '25'], [50, '50'], [100, '100']]))}
+      ${setRow('Remove Clips After', 'Clips older than this are removed.', prefSel('cb.expire', c.expire, [[0, 'Never'], [1, '1 hour'], [24, '1 day'], [168, '1 week']]))}
+      ${setRow('Keep After Quitting', 'Off keeps clips in memory only, so quitting forgets them. On saves them in a file only you can read.', prefSel('cb.persist', c.persist, [[false, 'Off'], [true, 'On']]))}</div>
+    <p class="hint">${c.count} saved. <button class="btn" data-clipclear ${c.count ? '' : 'disabled'}>Delete All History</button></p>`;
+}
 function panePage(name) {
+  if (name === 'menubar') return menubarPane();
+  if (name === 'clipboard') return clipboardPane();
   if (name === 'general') {
     return `<div class="card">${loginRow()}
       ${setRow('Mac Notifications', 'Show alerts as native macOS notifications, even with the window closed.', sel('nativeNotify', [[true, 'On'], [false, 'Off']]) + ' <button class="btn" data-testnotify>Send Test</button>')}
@@ -560,6 +584,15 @@ document.addEventListener('change', async (e) => {
     await saveFolders(ids);
     return;
   }
+  const mt = e.target.closest('[data-metric]');
+  if (mt) { nativeCall({ setPref: { key: 'mb.metrics', value: [...document.querySelectorAll('[data-metric]')].filter((x) => x.checked).map((x) => x.dataset.metric) } }); return; }
+  const pf = e.target.closest('[data-pref]');
+  if (pf) {
+    const raw = pf.value, val = raw === 'true' ? true : raw === 'false' ? false : /^\d+$/.test(raw) ? Number(raw) : raw;
+    if (pf.dataset.pref === 'cb.enabled' && val === true && !confirm('Turn on clipboard history?\n\nQuillmeter will read the text you copy and keep it so you can pick it again from the menu bar. Text from password managers is skipped. You can turn it off any time and everything saved is deleted.')) { render(true); return; }
+    nativeCall({ setPref: { key: pf.dataset.pref, value: val } });
+    return;
+  }
   const nat = e.target.closest('[data-native]');
   if (nat) { nativeCall({ launchAtLogin: nat.value === 'true' }); return; }
   const el = e.target.closest('[data-set]');
@@ -581,6 +614,7 @@ document.addEventListener('click', async (e) => {
   if (sh) { await finishSheet(sh.dataset.sheet === 'skip'); return; }
   if (e.target.closest('#opt-notify, #opt-login')) { sheetOpts = { notify: $('#opt-notify').checked, login: $('#opt-login') ? $('#opt-login').checked : false }; return; }
   if (e.target.closest('[data-export]')) { exportImage(); return; }
+  if (e.target.closest('[data-clipclear]')) { if (confirm('Delete all clipboard history? It can\u2019t be undone. What is on your clipboard now stays there.')) nativeCall({ clearClipboard: true }); return; }
   const pn = e.target.closest('[data-pane]');
   if (pn) { pane = pn.dataset.pane; localStorage.setItem('quillmeter.pane', pane); render(true); if (pane === 'folders') pollDisk(); return; }
   if (e.target.closest('[data-open-settings]')) { openSettings(); return; }
